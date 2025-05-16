@@ -615,9 +615,129 @@ func (p *staticPolicy) calculateHints(machineState state.NUMANodeMap, pod *v1.Po
 	return hints
 }
 
+// TODO: add comment on overall design choice (why departing?).
+// TODO: document the return argument.
+// TODO: test cases.
+// TODO: add handling of pod reusable memory.
+// TODO: test there are no zNUMAs.
+// TODO: test there are zNUMAs but no combo can satisfy the request.
 func (p *staticPolicy) calculateFarMemHints(machineState state.NUMANodeMap, pod *v1.Pod, requestedFarMem uint64) map[string][]topologymanager.TopologyHint {
-	// TODO: implement me!
-	panic("IMPLEMENT ME!")
+	if requestedFarMem == 0 {
+		// This hint symbolizes that the pod/container needs no far memory so no zNUMAs should
+		// be allocated.
+		return farMemoryHint(nil, true)
+	}
+
+	var zNUMAs []int
+	for n := range machineState {
+		// This function calculates hints only for zNUMAs, so we skip any other NUMA.
+		if machineState[n].IsZNUMA {
+			zNUMAs = append(zNUMAs, n)
+		}
+	}
+	sort.Ints(zNUMAs)
+
+	// TODO: add comment on policy choice.
+	// TODO: add comment on optimization(s) (tie-breakers).
+	var bestCombo []int
+	for k := 1; k < len(zNUMAs); k++ {
+		iterateCombinations(zNUMAs, k, func(combo []int) LoopControl {
+			var freeMem uint64
+			for _, n := range combo {
+				ms := machineState[n]
+
+				// Once a zNUMA is part of an assignment A, all future assignments that touch that
+				// zNUMA must span the exact set of zNUMAs that A spans (until all allocations
+				// spanning that set are deleted, then the set is disbanded and the zNUMAs in it
+				// are loose again). So we can use `combo` only if it doesn't violate the
+				// aforementioned invariant. `.Cells` is the field storing the set of NUMAs in the
+				// assignments that n is part of, if it's part of any assignment.
+				if ms.NumberOfAssignments > 0 && !areGroupsEqual(ms.Cells, combo) {
+					return Continue
+				}
+
+				// Iteratively record how much free memory the combo has.
+				if nMemStats, ok := ms.MemoryMap[v1.ResourceMemory]; ok {
+					freeMem += nMemStats.Free
+				}
+			}
+
+			// Check that the combo collectively has enough free memory to satisfy the request.
+			if freeMem >= requestedFarMem {
+				bestCombo = combo
+				return Break
+			}
+
+			return Continue
+		})
+
+		if bestCombo != nil {
+			break
+		}
+	}
+
+	aff, err := bitmask.NewBitMask(bestCombo...)
+	if err != nil {
+		klog.ErrorS(err, "hmemorymanager failed to parse combo into bitmask", "combo", bestCombo)
+		return farMemoryHint(nil, false)
+	}
+
+	// We set the preferred argument to `bestCombo != nil` instead of true to handle the case where
+	// no combo that satisfies the request could be found. In that case, we want to set `Preferred`
+	// to false to signal to the client that no affinity could be found.
+	return farMemoryHint(aff, bestCombo != nil)
+}
+
+func farMemoryHint(affinity bitmask.BitMask, preferred bool) map[string][]topologymanager.TopologyHint {
+	return map[string][]topologymanager.TopologyHint{
+		string(v1.ResourceMemory): []topologymanager.TopologyHint{
+			{NUMANodeAffinity: affinity, Preferred: preferred},
+		},
+	}
+}
+
+// TODO (matte21): the following type is a duplicate of the one in
+// k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/cpu_assignment.go.
+// We should refactor things so that they are shared.
+// LoopControl controls the behavior of the cpu accumulator loop logic
+type LoopControl int
+
+// TODO (matte21): the following consts are duplicates of those in
+// k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/cpu_assignment.go.
+// We should refactor things so that they are shared.
+// Possible loop control outcomes
+const (
+	Continue LoopControl = iota
+	Break
+)
+
+// TODO (matte21): the following function is a duplicate of the one in
+// k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/cpu_assignment.go.
+// We should refactor things so that they are shared.
+// iterateCombinations walks through all n-choose-k subsets of size k in n and
+// calls function 'f()' on each subset. For example, if n={0,1,2}, and k=2,
+// then f() will be called on the subsets {0,1}, {0,2}. and {1,2}. If f() ever
+// returns 'Break', we break early and exit the loop.
+func iterateCombinations(n []int, k int, f func([]int) LoopControl) {
+	if k < 1 {
+		return
+	}
+
+	var helper func(n []int, k int, start int, accum []int, f func([]int) LoopControl) LoopControl
+	helper = func(n []int, k int, start int, accum []int, f func([]int) LoopControl) LoopControl {
+		if k == 0 {
+			return f(accum)
+		}
+		for i := start; i <= len(n)-k; i++ {
+			control := helper(n, k-1, i+1, append(accum, n[i]), f)
+			if control == Break {
+				return Break
+			}
+		}
+		return Continue
+	}
+
+	helper(n, k, 0, []int{}, f)
 }
 
 func (p *staticPolicy) isHintPreferred(maskBits []int, minAffinitySize int) bool {
