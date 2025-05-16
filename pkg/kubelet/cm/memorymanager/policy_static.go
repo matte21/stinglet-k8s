@@ -520,7 +520,10 @@ func getFarMemoryRequest(pod *v1.Pod, container *v1.Container) (map[v1.ResourceN
 func (p *staticPolicy) calculateHints(machineState state.NUMANodeMap, pod *v1.Pod, requestedResources map[v1.ResourceName]uint64) map[string][]topologymanager.TopologyHint {
 	var numaNodes []int
 	for n := range machineState {
-		numaNodes = append(numaNodes, n)
+		// This function calculates hints only for normal, local memory, so we skip zNUMAs.
+		if !machineState[n].IsZNUMA {
+			numaNodes = append(numaNodes, n)
+		}
 	}
 	sort.Ints(numaNodes)
 
