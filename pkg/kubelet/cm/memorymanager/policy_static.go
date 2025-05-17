@@ -454,19 +454,19 @@ func getRequestedResources(mgrName string, pod *v1.Pod, container *v1.Container)
 	if mgrName == NormalMemMgrName {
 		// If we're here, this memory manager must generate hints to satisfy the requests for
 		// "normal" memory.
-		return getLocalMemoryRequests(mgrName, pod, container)
+		return getLocalMemRequests(mgrName, pod, container)
 	}
 
 	// If we're here, this memory manager must generate hints to satisfy the requests for
 	// far memory.
-	return getFarMemoryRequest(pod, container)
+	return getFarMemRequest(pod, container)
 }
 
 func farMemAnnotationKey(containerName string) string {
 	return containerName + "/far-mem"
 }
 
-func getLocalMemoryRequests(mgrName string, pod *v1.Pod, container *v1.Container) (map[v1.ResourceName]uint64, error) {
+func getLocalMemRequests(mgrName string, pod *v1.Pod, container *v1.Container) (map[v1.ResourceName]uint64, error) {
 	requestedResources := map[v1.ResourceName]uint64{}
 	resources := container.Resources.Requests
 	// In-place pod resize feature makes Container.Resources field mutable for CPU & memory.
@@ -498,7 +498,7 @@ func getLocalMemoryRequests(mgrName string, pod *v1.Pod, container *v1.Container
 }
 
 // TODO: implement in-place vertical scaling.
-func getFarMemoryRequest(pod *v1.Pod, container *v1.Container) (map[v1.ResourceName]uint64, error) {
+func getFarMemRequest(pod *v1.Pod, container *v1.Container) (map[v1.ResourceName]uint64, error) {
 	farMemAnnotationKey := farMemAnnotationKey(container.Name)
 
 	farMemAnnotationVal, ok := pod.Annotations[farMemAnnotationKey]
