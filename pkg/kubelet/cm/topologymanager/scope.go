@@ -23,6 +23,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/cm/admission"
 	"k8s.io/kubernetes/pkg/kubelet/cm/containermap"
+	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 	"k8s.io/kubernetes/pkg/kubelet/lifecycle"
 )
 
@@ -69,6 +70,10 @@ type scope struct {
 	podMap containermap.ContainerMap
 
 	farMemMgr HintProvider
+
+	// outer key: pod UID
+	// inner key: container name
+	podFarMemAffinity map[string]map[string]bitmask.BitMask
 }
 
 func (s *scope) Name() string {
@@ -89,6 +94,16 @@ func (s *scope) setTopologyHints(podUID string, containerName string, th Topolog
 		s.podTopologyHints[podUID] = make(map[string]TopologyHint)
 	}
 	s.podTopologyHints[podUID][containerName] = th
+}
+
+func (s *scope) setFarMemAffinity(podUID, containerName string, affinity bitmask.BitMask) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.podFarMemAffinity[podUID] == nil {
+		s.podFarMemAffinity[podUID] = make(map[string]bitmask.BitMask)
+	}
+	s.podFarMemAffinity[podUID][containerName] = affinity
 }
 
 func (s *scope) GetAffinity(podUID string, containerName string) TopologyHint {
