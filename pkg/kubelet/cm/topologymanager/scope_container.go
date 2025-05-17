@@ -78,7 +78,7 @@ func (s *containerScope) Admit(pod *v1.Pod) lifecycle.PodAdmitResult {
 				return admission.GetPodAdmitResult(&TopologyAffinityError{})
 			}
 
-			s.setFarMemAffinity(string(pod.UID), container.Name, fmh)
+			s.setFarMemTopoHint(string(pod.UID), container.Name, fmh)
 		}
 
 		s.setTopologyHints(string(pod.UID), container.Name, bestHint)

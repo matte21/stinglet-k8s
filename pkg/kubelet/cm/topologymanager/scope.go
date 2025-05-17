@@ -95,7 +95,7 @@ func (s *scope) setTopologyHints(podUID string, containerName string, th Topolog
 	s.podTopologyHints[podUID][containerName] = th
 }
 
-func (s *scope) setFarMemAffinity(podUID, containerName string, th TopologyHint) {
+func (s *scope) setFarMemTopoHint(podUID, containerName string, th TopologyHint) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
