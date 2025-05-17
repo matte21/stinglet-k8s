@@ -278,6 +278,9 @@ func TestStaticPolicyStart(t *testing.T) {
 								NumPages: 1,
 							},
 						},
+						Cores: []cadvisorapi.Core{
+							{Id: 0},
+						},
 					},
 				},
 			},
