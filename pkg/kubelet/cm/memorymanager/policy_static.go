@@ -621,10 +621,7 @@ func (p *staticPolicy) calculateHints(machineState state.NUMANodeMap, pod *v1.Po
 
 // TODO: add comment on overall design choice (why departing?).
 // TODO: document the return argument.
-// TODO: test cases.
 // TODO: add handling of pod reusable memory.
-// TODO: test there are no zNUMAs.
-// TODO: test there are zNUMAs but no combo can satisfy the request.
 func (p *staticPolicy) calculateFarMemHints(machineState state.NUMANodeMap, pod *v1.Pod, requestedFarMem uint64) map[string][]topologymanager.TopologyHint {
 	if requestedFarMem == 0 {
 		// This hint symbolizes that the pod/container needs no far memory so no zNUMAs should
