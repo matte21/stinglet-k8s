@@ -621,8 +621,47 @@ func (p *staticPolicy) calculateHints(machineState state.NUMANodeMap, pod *v1.Po
 	return hints
 }
 
-// TODO: add comment on overall design choice (why departing?).
-// TODO: document the return argument.
+// calculateFarMemHints returns a single topology manager hint that can satisfy a request of
+// `requestedFarMem` bytes of far memory. The hint spans one or more zNUMAs, and spans only zNUMAs
+// (the only ones holding far memory).
+// If such a hint can be found, the returned map has only key v1.ResourceMemory and the matching item
+// is a slice with a single hint whose affinity encodes the zNUMAs in the hint, and with `preferred`
+// equal to true. If such a hint cannot be found, then the affinity has no zNUMA set (i.e. has value
+// 0) and `preferred` is false. If the request is 0 or a bug occurs, the affinity is nil and
+// `preferred` is false.
+// Only v1.ResourceMemory is supported, other resource types such as huge pages aren't. Even if a
+// single hint is returned, the return argument has the "map of slices" signature to comply with the
+// topology manager hint provider interface. Unlike other hint providers, this function returns a
+// single hint, as opposed to all hints that can satisfy the request, because the policy that this
+// function is part of doesn't align far memory hints and other types of hints (e.g. local memory
+// and cpus), so there's no point in having more hints (which is useful when the topology manager
+// has to find a single hint that is as shared as possible by each provider, and providers don't
+// know which hints other providers will generate).
+// Currently, the search proceeds from shortest to longest hints, and ends as soon as the first
+// feasible hint is found: if a hint of length X is feasible, remaining hints of length X and hints
+// of length Y > X are not considered. This makes the search faster than that of other hint
+// providers. However, it also makes the results potentially less optimal if the goal is to pack as
+// densely as possible. e.g. given two zNUMAs N1 and N2 where N1 is empty and has a lot more memory
+// than requested while N2 has exactly as much memory as requested, if the hint with N1 is evaluated
+// before the one with N2, the allocation will go to N1 rather than N2. In the future we might
+// change the algorithm to improve this.
+// Why would we want to pack as densely as possible? First of all, what do we mean by that? Two
+// interpretations are possible: (1) honor the constraint of using as little NUMAs as possible, and
+// (2) don't even honor that, which could be interpreted as "leave as many empty NUMAs as possible".
+// Let's start with (1). Why is that advantageous? It probably maximizes the amount of free memory
+// that can be unplugged (system-level/cluster admin perspective). It reduces the likelihood of
+// failures experienced by the app, and makes its memory and performance management easier (e.g.
+// what if the two NUMAs have different performance)? It leaves more room for future, larger apps
+// to use a single NUMA.
+// What about (2)? This is more controversial. What should we choose between an empty zNUMA
+// that can satisfy the allocation alone vs two partially allocated zNUMAs which would both become
+// full? The cluster admin perspective would say to choose the two partially allocated ones. The app
+// perspective favors choosing the empty zNUMA.
+// Note: we should probably track explicitly the amount of free locked vs pluggable memory and use
+// that as a factor in our algorithm.
+// Also, the hint search is subject to the standard memory manager invariant that once a zNUMA is
+// part of an assignment A, all future assignments that touch that zNUMA must span the exact set of
+// zNUMAs that A spans.
 // TODO: add handling of pod reusable memory (for pods with init containers).
 func (p *staticPolicy) calculateFarMemHints(machineState state.NUMANodeMap, pod *v1.Pod, requestedFarMem uint64) map[string][]topologymanager.TopologyHint {
 	if requestedFarMem == 0 {
@@ -640,8 +679,6 @@ func (p *staticPolicy) calculateFarMemHints(machineState state.NUMANodeMap, pod 
 	}
 	sort.Ints(zNUMAs)
 
-	// TODO: add comment on policy choice.
-	// TODO: add comment on optimization(s) (tie-breakers).
 	var bestCombo []int
 	for k := 1; k <= len(zNUMAs); k++ {
 		iterateCombinations(zNUMAs, k, func(combo []int) LoopControl {
