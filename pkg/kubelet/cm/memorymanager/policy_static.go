@@ -491,9 +491,13 @@ func getRequestedResources(mgrName string, pod *v1.Pod, container *v1.Container)
 	return requestedResources, nil
 }
 
+func farMemAnnotationKey(containerName string) string {
+	return containerName + "/far-mem"
+}
+
 // TODO: implement in-place vertical scaling.
 func getFarMemoryRequest(pod *v1.Pod, container *v1.Container) (map[v1.ResourceName]uint64, error) {
-	farMemAnnotationKey := container.Name + "/far-mem"
+	farMemAnnotationKey := farMemAnnotationKey(container.Name)
 
 	farMemAnnotationVal, ok := pod.Annotations[farMemAnnotationKey]
 	if !ok {
@@ -640,7 +644,7 @@ func (p *staticPolicy) calculateFarMemHints(machineState state.NUMANodeMap, pod 
 	// TODO: add comment on policy choice.
 	// TODO: add comment on optimization(s) (tie-breakers).
 	var bestCombo []int
-	for k := 1; k < len(zNUMAs); k++ {
+	for k := 1; k <= len(zNUMAs); k++ {
 		iterateCombinations(zNUMAs, k, func(combo []int) LoopControl {
 			var freeMem uint64
 			for _, n := range combo {
