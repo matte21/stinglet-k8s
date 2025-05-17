@@ -28,6 +28,8 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/kubernetes/pkg/kubelet/cm/memorymanager/state"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
@@ -4101,5 +4103,533 @@ func Test_isAffinityViolatingNUMAAllocations(t *testing.T) {
 				t.Errorf("isAffinityViolatingNUMAAllocations with affinity %v expected to return %t, got %t", tc.topologyHint.NUMANodeAffinity.GetBits(), tc.isViolationExpected, !tc.isViolationExpected)
 			}
 		})
+	}
+}
+
+type testFarMemStaticPolicy struct {
+	description                  string
+	assignments                  state.ContainerMemoryAssignments
+	expectedAssignments          state.ContainerMemoryAssignments
+	machineState                 state.NUMANodeMap
+	expectedMachineState         state.NUMANodeMap
+	systemReserved               systemReservedMemory
+	expectedError                error
+	machineInfo                  *cadvisorapi.MachineInfo
+	pod                          *v1.Pod
+	topologyHint                 *topologymanager.TopologyHint
+	expectedTopologyHints        map[string][]topologymanager.TopologyHint
+	expectedTopoHint             *topologymanager.TopologyHint
+	initContainersReusableMemory reusableMemory
+}
+
+func topoHint(preferred bool, numas ...int) *topologymanager.TopologyHint {
+	affinity, err := bitmask.NewBitMask(numas...)
+	if err != nil {
+		panic(err)
+	}
+	return &topologymanager.TopologyHint{
+		NUMANodeAffinity: affinity,
+		Preferred:        preferred,
+	}
+}
+
+func emptyTopoHint(preferred bool) *topologymanager.TopologyHint {
+	return &topologymanager.TopologyHint{
+		NUMANodeAffinity: nil,
+		Preferred:        preferred,
+	}
+}
+
+func TestHMemMgrGetTopologyHints(t *testing.T) {
+	testCases := []testFarMemStaticPolicy{
+		{
+			description:           "Not Guaranteed (but requests far memory)",
+			pod:                   farMemPod("pod1", "container1", "2Gi", requirementsBurstable),
+			expectedTopologyHints: nil,
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+		},
+		{
+			description:      "Doesn't request any far memory",
+			pod:              getPod("pod2", "container2", requirementsGuaranteed),
+			expectedTopoHint: emptyTopoHint(true),
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+		},
+		{
+			description:      "Requests 0 far memory",
+			pod:              farMemPod("pod3", "container3", "0Gi", requirementsGuaranteed),
+			expectedTopoHint: emptyTopoHint(true),
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+		},
+		{
+			description:      "There are no zNUMAs.",
+			pod:              farMemPod("pod4", "container4", "3Gi", requirementsGuaranteed),
+			expectedTopoHint: topoHint(false),
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{0},
+					IsZNUMA: false,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+		},
+		{
+			description:      "There are zNUMAs, but no combo can satisfy the request (all zNUMAs loose).",
+			pod:              farMemPod("pod5", "container5", "10Gi", requirementsGuaranteed),
+			expectedTopoHint: topoHint(false),
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{0},
+					IsZNUMA: true,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{1},
+					IsZNUMA: true,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+		},
+		{
+			description:      "There are zNUMAs, but no combo can satisfy the request (some groups exist and grouping causes the miss).",
+			pod:              farMemPod("pod6", "container6", "1036Mi", requirementsGuaranteed),
+			expectedTopoHint: topoHint(false),
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1 * gb,
+							Free:           0,
+							Reserved:       gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1 * gb,
+							Free:           512 * mb,
+							Reserved:       512 * mb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				2: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: gb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{2},
+					IsZNUMA: true,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+				2: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+			},
+		},
+		{
+			description:      "request can be satisfied with single, virgin zNUMA.",
+			pod:              farMemPod("pod7", "container7", "4Gi", requirementsGuaranteed),
+			expectedTopoHint: topoHint(true, 1),
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{0},
+					IsZNUMA: true,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    4 * gb,
+							Free:           4 * gb,
+							Reserved:       0,
+							SystemReserved: gb,
+							TotalMemSize:   5 * gb,
+						},
+					},
+					Cells:   []int{1},
+					IsZNUMA: true,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+			},
+		},
+		{
+			description:      "request can be satisfied with single, experienced zNUMA.",
+			pod:              farMemPod("pod8", "container8", "600Mi", requirementsGuaranteed),
+			expectedTopoHint: topoHint(true, 0),
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1036 * mb,
+							Reserved:       500 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           512 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   gb,
+						},
+					},
+					Cells:   []int{1},
+					IsZNUMA: true,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+		},
+		{
+			description:      "request can be satisfied with 3 zNUMAs that were on their own.",
+			pod:              farMemPod("pod7", "container7", "8Gi", requirementsGuaranteed),
+			expectedTopoHint: topoHint(true, 0, 2, 3),
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           2 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{0},
+					IsZNUMA: true,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1 * gb,
+							Free:           1 * gb,
+							Reserved:       0,
+							SystemReserved: 4 * gb,
+							TotalMemSize:   5 * gb,
+						},
+					},
+					Cells:   []int{1},
+					IsZNUMA: true,
+				},
+				2: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           2 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{2},
+					IsZNUMA: true,
+				},
+				3: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    4 * gb,
+							Free:           4 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   4 * gb,
+						},
+					},
+					Cells:   []int{3},
+					IsZNUMA: true,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 4 * gb,
+				},
+			},
+		},
+		{
+			description:      "request can be satisfied with 3 zNUMAs that are already in group.",
+			pod:              farMemPod("pod8", "container8", "3Gi", requirementsGuaranteed),
+			expectedTopoHint: topoHint(true, 1, 2, 3),
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1 * gb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           1 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 3 * gb,
+							TotalMemSize:   5 * gb,
+						},
+					},
+					Cells:               []int{1, 2, 3},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				2: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           1 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{1, 2, 3},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				3: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    4 * gb,
+							Free:           1 * gb,
+							Reserved:       3 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   4 * gb,
+						},
+					},
+					Cells:               []int{1, 2, 3},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 3 * gb,
+				},
+			},
+		},
+		{
+			description:      "request is satisfied only by all zNUMAs.",
+			pod:              farMemPod("pod9", "container9", "3Gi", requirementsGuaranteed),
+			expectedTopoHint: topoHint(true, 0, 1),
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           2 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{0},
+					IsZNUMA: true,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1 * gb,
+							Free:           1 * gb,
+							Reserved:       0,
+							SystemReserved: 4 * gb,
+							TotalMemSize:   5 * gb,
+						},
+					},
+					Cells:   []int{1},
+					IsZNUMA: true,
+				},
+				2: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    4 * gb,
+							Free:           4 * gb,
+							Reserved:       0,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   5 * gb,
+						},
+					},
+					Cells:   []int{2},
+					IsZNUMA: false,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 4 * gb,
+				},
+				2: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			p, s, err := initFarMemTests(t, &tc, nil, nil)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			topologyHints := p.GetTopologyHints(s, tc.pod, &tc.pod.Spec.Containers[0])
+
+			expectedTopologyHints := tc.expectedTopologyHints
+			if tc.expectedTopoHint != nil {
+				expectedTopologyHints = map[string][]topologymanager.TopologyHint{
+					string(v1.ResourceMemory): []topologymanager.TopologyHint{
+						*tc.expectedTopoHint,
+					},
+				}
+			}
+
+			if !reflect.DeepEqual(topologyHints, expectedTopologyHints) {
+				t.Fatalf("The actual topology hints: '%+v' are different from the expected one: '%+v'", topologyHints, expectedTopologyHints)
+			}
+		})
+	}
+}
+
+func initFarMemTests(t *testing.T, testCase *testFarMemStaticPolicy, hint *topologymanager.TopologyHint, initContainersReusableMemory reusableMemory) (Policy, state.State, error) {
+	manager := topologymanager.NewFakeManager()
+	if hint != nil {
+		manager = topologymanager.NewFakeManagerWithHint(hint)
+	}
+
+	p, err := NewPolicyStatic(HetMemMgrName, testCase.machineInfo, testCase.systemReserved, manager)
+	if err != nil {
+		return nil, nil, err
+	}
+	if initContainersReusableMemory != nil {
+		p.(*staticPolicy).initContainersReusableMemory = initContainersReusableMemory
+	}
+	s := state.NewMemoryState()
+	s.SetMachineState(testCase.machineState)
+	s.SetMemoryAssignments(testCase.assignments)
+	return p, s, nil
+}
+
+func farMemPod(podUID, containerName, farMemReq string, requirements *v1.ResourceRequirements) *v1.Pod {
+	return &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			UID: types.UID(podUID),
+			Annotations: map[string]string{
+				farMemAnnotationKey(containerName): farMemReq,
+			},
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name:      containerName,
+					Resources: *requirements,
+				},
+			},
+		},
 	}
 }
