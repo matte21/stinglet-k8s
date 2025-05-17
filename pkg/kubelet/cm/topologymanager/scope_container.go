@@ -64,21 +64,7 @@ func (s *containerScope) Admit(pod *v1.Pod) lifecycle.PodAdmitResult {
 
 		farMemMgrHints := s.farMemMgr.GetTopologyHints(pod, &container)
 		if len(farMemMgrHints) > 0 {
-			if len(farMemMgrHints) != 1 {
-				panic(fmt.Sprintf("far memory manager returned hints for resource types other than %s", string(v1.ResourceMemory)))
-			}
-
-			farMemHints, ok := farMemMgrHints[string(v1.ResourceMemory)]
-
-			if !ok {
-				panic(fmt.Sprintf("far memory manager returned some hints but none is for resource type %s", string(v1.ResourceMemory)))
-			}
-
-			if len(farMemHints) > 1 {
-				panic(fmt.Sprintf("far memory manager returned more than one hint for resource type %s", string(v1.ResourceMemory)))
-			}
-
-			fmh := farMemHints[0]
+			fmh := getFarMemHint(farMemMgrHints)
 
 			// If no hint that satisfies the container's far memory request could be found the pod
 			// can't be admitted (we hackishly use the Preferred field to encode that).
@@ -111,6 +97,24 @@ func (s *containerScope) Admit(pod *v1.Pod) lifecycle.PodAdmitResult {
 		}
 	}
 	return admission.GetPodAdmitResult(nil)
+}
+
+func getFarMemHint(farMemMgrHints map[string][]TopologyHint) TopologyHint {
+	if len(farMemMgrHints) != 1 {
+		panic(fmt.Sprintf("far memory manager returned hints for resource types other than %s", string(v1.ResourceMemory)))
+	}
+
+	farMemHints, ok := farMemMgrHints[string(v1.ResourceMemory)]
+
+	if !ok || len(farMemHints) == 0 {
+		panic(fmt.Sprintf("far memory manager returned no hint for resource type %s", string(v1.ResourceMemory)))
+	}
+
+	if len(farMemHints) > 1 {
+		panic(fmt.Sprintf("far memory manager returned more than one hint for resource type %s", string(v1.ResourceMemory)))
+	}
+
+	return farMemHints[0]
 }
 
 func (s *containerScope) accumulateProvidersHints(pod *v1.Pod, container *v1.Container) []map[string][]TopologyHint {
