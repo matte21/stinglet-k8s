@@ -429,17 +429,7 @@ func (p *staticPolicy) GetTopologyHints(s state.State, pod *v1.Pod, container *v
 		return nil
 	}
 
-	var requestedResources map[v1.ResourceName]uint64
-	var err error
-	if p.mgrName == NormalMemMgrName {
-		// If we're here, this memory manager must generate hints to satisfy the requests for
-		// "normal" memory.
-		requestedResources, err = getRequestedResources(p.mgrName, pod, container)
-	} else {
-		// If we're here, this memory manager must generate hints to satisfy the requests for
-		// far memory.
-		requestedResources, err = getFarMemoryRequest(pod, container)
-	}
+	requestedResources, err := getRequestedResources(p.mgrName, pod, container)
 	if err != nil {
 		klog.ErrorS(err, "Failed to get container requested resources", "pod", klog.KObj(pod), "podUID", pod.UID, "containerName", container.Name)
 		return nil
@@ -461,6 +451,15 @@ func (p *staticPolicy) GetTopologyHints(s state.State, pod *v1.Pod, container *v
 }
 
 func getRequestedResources(mgrName string, pod *v1.Pod, container *v1.Container) (map[v1.ResourceName]uint64, error) {
+	if mgrName == HetMemMgrName {
+		// If we're here, this memory manager must generate hints to satisfy the requests for
+		// far memory.
+		return getFarMemoryRequest(pod, container)
+	}
+
+	// If we're here, this memory manager must generate hints to satisfy the requests for
+	// "normal" memory.
+
 	requestedResources := map[v1.ResourceName]uint64{}
 	resources := container.Resources.Requests
 	// In-place pod resize feature makes Container.Resources field mutable for CPU & memory.
@@ -621,7 +620,7 @@ func (p *staticPolicy) calculateHints(machineState state.NUMANodeMap, pod *v1.Po
 
 // TODO: add comment on overall design choice (why departing?).
 // TODO: document the return argument.
-// TODO: add handling of pod reusable memory.
+// TODO: add handling of pod reusable memory (for pods with init containers).
 func (p *staticPolicy) calculateFarMemHints(machineState state.NUMANodeMap, pod *v1.Pod, requestedFarMem uint64) map[string][]topologymanager.TopologyHint {
 	if requestedFarMem == 0 {
 		// This hint symbolizes that the pod/container needs no far memory so no zNUMAs should
