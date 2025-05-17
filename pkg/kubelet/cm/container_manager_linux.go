@@ -349,6 +349,22 @@ func NewContainerManager(mountUtil mount.Interface, cadvisorInterface cadvisor.I
 	}
 	cm.topologyManager.AddHintProvider(cm.memoryManager)
 
+	// Initialize the far memory manager.
+	farMemMgr, err := memorymanager.NewManager(
+		memorymanager.HetMemMgrName,
+		nodeConfig.MemoryManagerPolicy,
+		machineInfo,
+		cm.GetNodeAllocatableReservation(),
+		nodeConfig.MemoryManagerReservedMemory,
+		nodeConfig.KubeletRootDir,
+		cm.topologyManager,
+	)
+	if err != nil {
+		klog.ErrorS(err, "Failed to initialize far memory manager")
+		return nil, err
+	}
+	cm.topologyManager.AddFarMemMgr(farMemMgr)
+
 	return cm, nil
 }
 

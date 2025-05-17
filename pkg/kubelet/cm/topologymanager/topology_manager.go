@@ -66,6 +66,8 @@ type Manager interface {
 	RemoveContainer(containerID string) error
 	// Store is the interface for storing pod topology hints
 	Store
+
+	AddFarMemMgr(fmm HintProvider)
 }
 
 type manager struct {
@@ -211,6 +213,10 @@ func (m *manager) GetPolicy() Policy {
 
 func (m *manager) AddHintProvider(h HintProvider) {
 	m.scope.AddHintProvider(h)
+}
+
+func (m *manager) AddFarMemMgr(fmm HintProvider) {
+	m.scope.AddFarMemMgr(fmm)
 }
 
 func (m *manager) AddContainer(pod *v1.Pod, container *v1.Container, containerID string) {

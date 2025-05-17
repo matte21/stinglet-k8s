@@ -19,7 +19,7 @@ package topologymanager
 import (
 	"sync"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/cm/admission"
 	"k8s.io/kubernetes/pkg/kubelet/cm/containermap"
@@ -51,6 +51,8 @@ type Scope interface {
 	RemoveContainer(containerID string) error
 	// Store is the interface for storing pod topology hints
 	Store
+
+	AddFarMemMgr(fmm HintProvider)
 }
 
 type scope struct {
@@ -65,6 +67,8 @@ type scope struct {
 	policy Policy
 	// Mapping of (PodUid, ContainerName) to ContainerID for Adding/Removing Pods from PodTopologyHints mapping
 	podMap containermap.ContainerMap
+
+	farMemMgr HintProvider
 }
 
 func (s *scope) Name() string {
@@ -97,6 +101,10 @@ func (s *scope) GetPolicy() Policy {
 
 func (s *scope) AddHintProvider(h HintProvider) {
 	s.hintProviders = append(s.hintProviders, h)
+}
+
+func (s *scope) AddFarMemMgr(fmm HintProvider) {
+	s.farMemMgr = fmm
 }
 
 // It would be better to implement this function in topologymanager instead of scope
