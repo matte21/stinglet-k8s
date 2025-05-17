@@ -451,15 +451,22 @@ func (p *staticPolicy) GetTopologyHints(s state.State, pod *v1.Pod, container *v
 }
 
 func getRequestedResources(mgrName string, pod *v1.Pod, container *v1.Container) (map[v1.ResourceName]uint64, error) {
-	if mgrName == HetMemMgrName {
+	if mgrName == NormalMemMgrName {
 		// If we're here, this memory manager must generate hints to satisfy the requests for
-		// far memory.
-		return getFarMemoryRequest(pod, container)
+		// "normal" memory.
+		return getLocalMemoryRequests(mgrName, pod, container)
 	}
 
 	// If we're here, this memory manager must generate hints to satisfy the requests for
-	// "normal" memory.
+	// far memory.
+	return getFarMemoryRequest(pod, container)
+}
 
+func farMemAnnotationKey(containerName string) string {
+	return containerName + "/far-mem"
+}
+
+func getLocalMemoryRequests(mgrName string, pod *v1.Pod, container *v1.Container) (map[v1.ResourceName]uint64, error) {
 	requestedResources := map[v1.ResourceName]uint64{}
 	resources := container.Resources.Requests
 	// In-place pod resize feature makes Container.Resources field mutable for CPU & memory.
@@ -488,10 +495,6 @@ func getRequestedResources(mgrName string, pod *v1.Pod, container *v1.Container)
 		requestedResources[resourceName] = uint64(requestedSize)
 	}
 	return requestedResources, nil
-}
-
-func farMemAnnotationKey(containerName string) string {
-	return containerName + "/far-mem"
 }
 
 // TODO: implement in-place vertical scaling.
