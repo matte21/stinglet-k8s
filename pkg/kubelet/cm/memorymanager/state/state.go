@@ -63,6 +63,7 @@ func (nm NUMANodeMap) Clone() NUMANodeMap {
 		clone[node] = &NUMANodeState{}
 		clone[node].NumberOfAssignments = s.NumberOfAssignments
 		clone[node].Cells = append([]int{}, s.Cells...)
+		clone[node].IsZNUMA = s.IsZNUMA
 
 		if s.MemoryMap == nil {
 			continue
