@@ -662,7 +662,7 @@ func (p *staticPolicy) calculateHints(machineState state.NUMANodeMap, pod *v1.Po
 // Also, the hint search is subject to the standard memory manager invariant that once a zNUMA is
 // part of an assignment A, all future assignments that touch that zNUMA must span the exact set of
 // zNUMAs that A spans.
-// TODO: add handling of pod reusable memory (for pods with init containers).
+// TODO: add support for init containers/handling of pod reusable memory.
 func (p *staticPolicy) calculateFarMemHints(machineState state.NUMANodeMap, pod *v1.Pod, requestedFarMem uint64) map[string][]topologymanager.TopologyHint {
 	if requestedFarMem == 0 {
 		// This hint symbolizes that the pod/container needs no far memory so no zNUMAs should
@@ -1018,6 +1018,7 @@ func (p *staticPolicy) getResourceSystemReserved(nodeID int, resourceName v1.Res
 }
 
 func (p *staticPolicy) getDefaultHint(machineState state.NUMANodeMap, pod *v1.Pod, requestedResources map[v1.ResourceName]uint64) (*topologymanager.TopologyHint, error) {
+	// TODO: branch?
 	hints := p.calculateHints(machineState, pod, requestedResources)
 	if len(hints) < 1 {
 		return nil, fmt.Errorf("[%s] failed to get the default NUMA affinity, no NUMA nodes with enough memory is available", strings.ReplaceAll(p.mgrName, "_", ""))

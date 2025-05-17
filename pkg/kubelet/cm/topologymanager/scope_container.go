@@ -23,7 +23,6 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/cm/admission"
 	"k8s.io/kubernetes/pkg/kubelet/cm/containermap"
-	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 	"k8s.io/kubernetes/pkg/kubelet/lifecycle"
 	"k8s.io/kubernetes/pkg/kubelet/metrics"
 )
@@ -43,7 +42,7 @@ func NewContainerScope(policy Policy) Scope {
 			podTopologyHints:  podTopologyHints{},
 			policy:            policy,
 			podMap:            containermap.NewContainerMap(),
-			podFarMemAffinity: map[string]map[string]bitmask.BitMask{},
+			podFarMemAffinity: map[string]map[string]TopologyHint{},
 		},
 	}
 }
@@ -79,8 +78,7 @@ func (s *containerScope) Admit(pod *v1.Pod) lifecycle.PodAdmitResult {
 				return admission.GetPodAdmitResult(&TopologyAffinityError{})
 			}
 
-			// This sets a nil affinity when the far memory request is 0.
-			s.setFarMemAffinity(string(pod.UID), container.Name, fmh.NUMANodeAffinity)
+			s.setFarMemAffinity(string(pod.UID), container.Name, fmh)
 		}
 
 		s.setTopologyHints(string(pod.UID), container.Name, bestHint)

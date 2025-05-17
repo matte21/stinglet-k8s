@@ -19,7 +19,6 @@ package topologymanager
 import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/kubernetes/pkg/kubelet/cm/containermap"
-	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 	"k8s.io/kubernetes/pkg/kubelet/lifecycle"
 )
 
@@ -38,7 +37,7 @@ func NewNoneScope() Scope {
 			podTopologyHints:  podTopologyHints{},
 			policy:            NewNonePolicy(),
 			podMap:            containermap.NewContainerMap(),
-			podFarMemAffinity: map[string]map[string]bitmask.BitMask{},
+			podFarMemAffinity: map[string]map[string]TopologyHint{},
 		},
 	}
 }

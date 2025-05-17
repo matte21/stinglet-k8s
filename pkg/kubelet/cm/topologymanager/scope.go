@@ -23,7 +23,6 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/cm/admission"
 	"k8s.io/kubernetes/pkg/kubelet/cm/containermap"
-	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 	"k8s.io/kubernetes/pkg/kubelet/lifecycle"
 )
 
@@ -73,7 +72,7 @@ type scope struct {
 
 	// outer key: pod UID
 	// inner key: container name
-	podFarMemAffinity map[string]map[string]bitmask.BitMask
+	podFarMemAffinity map[string]map[string]TopologyHint
 }
 
 func (s *scope) Name() string {
@@ -96,14 +95,14 @@ func (s *scope) setTopologyHints(podUID string, containerName string, th Topolog
 	s.podTopologyHints[podUID][containerName] = th
 }
 
-func (s *scope) setFarMemAffinity(podUID, containerName string, affinity bitmask.BitMask) {
+func (s *scope) setFarMemAffinity(podUID, containerName string, th TopologyHint) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
 	if s.podFarMemAffinity[podUID] == nil {
-		s.podFarMemAffinity[podUID] = make(map[string]bitmask.BitMask)
+		s.podFarMemAffinity[podUID] = make(map[string]TopologyHint)
 	}
-	s.podFarMemAffinity[podUID][containerName] = affinity
+	s.podFarMemAffinity[podUID][containerName] = th
 }
 
 func (s *scope) GetAffinity(podUID string, containerName string) TopologyHint {
@@ -177,5 +176,11 @@ func (s *scope) allocateAlignedResources(pod *v1.Pod, container *v1.Container) e
 			return err
 		}
 	}
+
+	// Now, allocate far memory.
+	// if err := s.farMemMgr.Allocate(pod, container); err != nil {
+	// 	return err
+	// }
+
 	return nil
 }
