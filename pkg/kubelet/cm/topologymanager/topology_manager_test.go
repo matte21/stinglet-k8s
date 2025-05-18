@@ -21,7 +21,7 @@ import (
 	"strings"
 	"testing"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 
@@ -540,6 +540,7 @@ func TestAdmit(t *testing.T) {
 		ctnScopeManager := manager{}
 		ctnScopeManager.scope = NewContainerScope(tc.policy)
 		ctnScopeManager.scope.(*containerScope).hintProviders = tc.hp
+		ctnScopeManager.scope.(*containerScope).farMemMgr = &mockHintProvider{}
 
 		podScopeManager := manager{}
 		podScopeManager.scope = NewPodScope(tc.policy)
