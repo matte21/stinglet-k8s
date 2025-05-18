@@ -100,6 +100,7 @@ type HintProvider interface {
 type Store interface {
 	GetAffinity(podUID string, containerName string) TopologyHint
 	GetPolicy() Policy
+	GetFarMemAffinity(podUID string, containerName string) TopologyHint
 }
 
 // TopologyHint is a struct containing the NUMANodeAffinity for a Container
@@ -209,6 +210,10 @@ func (m *manager) GetAffinity(podUID string, containerName string) TopologyHint 
 
 func (m *manager) GetPolicy() Policy {
 	return m.scope.GetPolicy()
+}
+
+func (m *manager) GetFarMemAffinity(podUID string, containerName string) TopologyHint {
+	return m.scope.GetFarMemAffinity(podUID, containerName)
 }
 
 func (m *manager) AddHintProvider(h HintProvider) {

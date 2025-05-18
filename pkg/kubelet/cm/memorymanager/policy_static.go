@@ -123,7 +123,12 @@ func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Contai
 	}
 
 	// Call Topology Manager to get the aligned affinity across all hint providers.
-	hint := p.affinity.GetAffinity(podUID, container.Name)
+	var hint topologymanager.TopologyHint
+	if p.mgrName == NormalMemMgrName {
+		hint = p.affinity.GetAffinity(podUID, container.Name)
+	} else {
+		hint = p.affinity.GetFarMemAffinity(podUID, container.Name)
+	}
 	klog.InfoS("Got topology affinity", "pod", klog.KObj(pod), "podUID", pod.UID, "containerName", container.Name, "hint", hint)
 
 	requestedResources, err := getRequestedResources(p.mgrName, pod, container)
@@ -1018,8 +1023,12 @@ func (p *staticPolicy) getResourceSystemReserved(nodeID int, resourceName v1.Res
 }
 
 func (p *staticPolicy) getDefaultHint(machineState state.NUMANodeMap, pod *v1.Pod, requestedResources map[v1.ResourceName]uint64) (*topologymanager.TopologyHint, error) {
-	// TODO: branch?
-	hints := p.calculateHints(machineState, pod, requestedResources)
+	var hints map[string][]topologymanager.TopologyHint
+	if p.mgrName == NormalMemMgrName {
+		hints = p.calculateHints(machineState, pod, requestedResources)
+	} else {
+		hints = p.calculateFarMemHints(machineState, pod, requestedResources[v1.ResourceMemory])
+	}
 	if len(hints) < 1 {
 		return nil, fmt.Errorf("[%s] failed to get the default NUMA affinity, no NUMA nodes with enough memory is available", strings.ReplaceAll(p.mgrName, "_", ""))
 	}

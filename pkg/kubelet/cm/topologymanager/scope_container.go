@@ -89,6 +89,13 @@ func (s *containerScope) Admit(pod *v1.Pod) lifecycle.PodAdmitResult {
 			return admission.GetPodAdmitResult(err)
 		}
 
+		// Now, allocate far memory.
+		err = s.farMemMgr.Allocate(pod, &container)
+		if err != nil {
+			metrics.TopologyManagerAdmissionErrorsTotal.Inc()
+			return admission.GetPodAdmitResult(err)
+		}
+
 		if IsAlignmentGuaranteed(s.policy) {
 			klog.V(4).InfoS("Resource alignment at container scope guaranteed", "pod", klog.KObj(pod))
 			metrics.ContainerAlignedComputeResources.WithLabelValues(metrics.AlignScopeContainer, metrics.AlignedNUMANode).Inc()

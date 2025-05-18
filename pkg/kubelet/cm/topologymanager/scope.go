@@ -109,6 +109,12 @@ func (s *scope) GetAffinity(podUID string, containerName string) TopologyHint {
 	return s.getTopologyHints(podUID, containerName)
 }
 
+func (s *scope) GetFarMemAffinity(podUID string, containerName string) TopologyHint {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return s.podFarMemAffinity[podUID][containerName]
+}
+
 func (s *scope) GetPolicy() Policy {
 	return s.policy
 }
@@ -176,11 +182,6 @@ func (s *scope) allocateAlignedResources(pod *v1.Pod, container *v1.Container) e
 			return err
 		}
 	}
-
-	// Now, allocate far memory.
-	// if err := s.farMemMgr.Allocate(pod, container); err != nil {
-	// 	return err
-	// }
 
 	return nil
 }
