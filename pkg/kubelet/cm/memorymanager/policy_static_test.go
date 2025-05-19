@@ -2053,6 +2053,39 @@ func TestStaticPolicyAllocate(t *testing.T) {
 	}
 }
 
+func TestStaticPolicyAllocateFarMem(t *testing.T) {
+	testCases := []testFarMemStaticPolicy{}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			t.Logf("TestStaticPolicyAllocateFarMem %s", tc.description)
+			p, s, err := initFarMemTests(t, &tc, tc.topologyHint, nil)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			err = p.Allocate(s, tc.pod, &tc.pod.Spec.Containers[0])
+			if !reflect.DeepEqual(err, tc.expectedError) {
+				t.Fatalf("The actual error %v is different from the expected one %v", err, tc.expectedError)
+			}
+
+			if err != nil {
+				return
+			}
+
+			assignments := s.GetMemoryAssignments()
+			if !areContainerMemoryAssignmentsEqual(t, assignments, tc.expectedAssignments) {
+				t.Fatalf("Actual assignments %v are different from the expected %v", assignments, tc.expectedAssignments)
+			}
+
+			machineState := s.GetMachineState()
+			if !areMachineStatesEqual(machineState, tc.expectedMachineState) {
+				t.Fatalf("The actual machine state %v is different from the expected %v", machineState, tc.expectedMachineState)
+			}
+		})
+	}
+}
+
 func TestStaticPolicyAllocateWithInitContainers(t *testing.T) {
 	testCases := []testStaticPolicy{
 		{
@@ -4658,7 +4691,7 @@ func TestFarMemMgrGetTopologyHints(t *testing.T) {
 func initFarMemTests(t *testing.T, testCase *testFarMemStaticPolicy, hint *topologymanager.TopologyHint, initContainersReusableMemory reusableMemory) (Policy, state.State, error) {
 	manager := topologymanager.NewFakeManager()
 	if hint != nil {
-		manager = topologymanager.NewFakeManagerWithHint(hint)
+		manager = topologymanager.NewFakeManagerWithFarMemHint(hint)
 	}
 
 	p, err := NewPolicyStatic(FarMemMgrName, testCase.machineInfo, testCase.systemReserved, manager)
