@@ -4519,7 +4519,7 @@ func TestFarMemMgrGetTopologyHints(t *testing.T) {
 			},
 		},
 		{
-			description:      "request is satisfied only by all zNUMAs.",
+			description:      "request is satisfied only by all virgin zNUMAs.",
 			pod:              farMemPod("pod9", "container9", "3Gi", requirementsGuaranteed),
 			expectedTopoHint: topoHint(true, 0, 1),
 			machineState: state.NUMANodeMap{
@@ -4548,6 +4548,62 @@ func TestFarMemMgrGetTopologyHints(t *testing.T) {
 					},
 					Cells:   []int{1},
 					IsZNUMA: true,
+				},
+				2: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    4 * gb,
+							Free:           4 * gb,
+							Reserved:       0,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   5 * gb,
+						},
+					},
+					Cells:   []int{2},
+					IsZNUMA: false,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 4 * gb,
+				},
+				2: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+			},
+		},
+		{
+			description:      "request is satisfied only by all non-virgin zNUMAs.",
+			pod:              farMemPod("pod10", "container10", "1536Mi", requirementsGuaranteed),
+			expectedTopoHint: topoHint(true, 0, 1),
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           1 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1 * gb,
+							Free:           512 * mb,
+							Reserved:       512 * mb,
+							SystemReserved: 4 * gb,
+							TotalMemSize:   5 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
 				},
 				2: &state.NUMANodeState{
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
