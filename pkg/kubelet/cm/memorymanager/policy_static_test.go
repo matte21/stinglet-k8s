@@ -2069,7 +2069,8 @@ func TestStaticPolicyAllocateFarMem(t *testing.T) {
 							TotalMemSize:   2 * gb,
 						},
 					},
-					Cells: []int{},
+					Cells:   []int{0},
+					IsZNUMA: true,
 				},
 			},
 			expectedMachineState: state.NUMANodeMap{
@@ -2083,7 +2084,8 @@ func TestStaticPolicyAllocateFarMem(t *testing.T) {
 							TotalMemSize:   2 * gb,
 						},
 					},
-					Cells: []int{},
+					Cells:   []int{0},
+					IsZNUMA: true,
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -2095,46 +2097,1291 @@ func TestStaticPolicyAllocateFarMem(t *testing.T) {
 			expectedTopologyHints: nil,
 			topologyHint:          &topologymanager.TopologyHint{},
 		},
-		// {
-		// 	description:         "should do nothing when hint is don't care because pod doesn't want far mem",
-		// 	expectedAssignments: state.ContainerMemoryAssignments{},
-		// 	machineState: state.NUMANodeMap{
-		// 		0: &state.NUMANodeState{
-		// 			MemoryMap: map[v1.ResourceName]*state.MemoryTable{
-		// 				v1.ResourceMemory: {
-		// 					Allocatable:    1536 * mb,
-		// 					Free:           1536 * mb,
-		// 					Reserved:       0,
-		// 					SystemReserved: 512 * mb,
-		// 					TotalMemSize:   2 * gb,
-		// 				},
-		// 			},
-		// 			Cells: []int{},
-		// 		},
-		// 	},
-		// 	expectedMachineState: state.NUMANodeMap{
-		// 		0: &state.NUMANodeState{
-		// 			MemoryMap: map[v1.ResourceName]*state.MemoryTable{
-		// 				v1.ResourceMemory: {
-		// 					Allocatable:    1536 * mb,
-		// 					Free:           1536 * mb,
-		// 					Reserved:       0,
-		// 					SystemReserved: 512 * mb,
-		// 					TotalMemSize:   2 * gb,
-		// 				},
-		// 			},
-		// 			Cells: []int{},
-		// 		},
-		// 	},
-		// 	systemReserved: systemReservedMemory{
-		// 		0: map[v1.ResourceName]uint64{
-		// 			v1.ResourceMemory: 512 * mb,
-		// 		},
-		// 	},
-		// 	pod:                   farMemPod("pod2", "container2", "0Gi", requirementsGuaranteed),
-		// 	expectedTopologyHints: nil,
-		// 	topologyHint:          &topologymanager.TopologyHint{},
-		// },
+		{
+			description: "should not update machineState, but insert block, for 0 far mem req",
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{0},
+					IsZNUMA: true,
+				},
+			},
+			expectedMachineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{0},
+					IsZNUMA: true,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod2": map[string][]state.Block{
+					"container2": {
+						{
+							NUMAAffinity: nil,
+							Type:         v1.ResourceMemory,
+							Size:         0,
+						},
+					},
+				},
+			},
+			pod:          farMemPod("pod2", "container2", "0Gi", requirementsGuaranteed),
+			topologyHint: emptyTopoHint(),
+		},
+		{
+			description: "when affinity is satisfied by brand new group, should create such group (group is single zNUMAs)",
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{0},
+					IsZNUMA: true,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           2 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{1},
+					IsZNUMA: true,
+				},
+			},
+			expectedMachineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1 * gb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           2 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{1},
+					IsZNUMA: true,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod3": map[string][]state.Block{
+					"container3": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         1 * gb,
+						},
+					},
+				},
+			},
+			pod:          farMemPod("pod3", "container3", "1Gi", requirementsGuaranteed),
+			topologyHint: topoHint(true, 0),
+		},
+		{
+			description: "when affinity is satisfied by brand new group, should create such group (group is all zNUMAs)",
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{0},
+					IsZNUMA: true,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           2 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{1},
+					IsZNUMA: true,
+				},
+			},
+			expectedMachineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1 * gb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           0,
+							Reserved:       2 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod4": map[string][]state.Block{
+					"container4": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         3 * gb,
+						},
+					},
+				},
+			},
+			pod:          farMemPod("pod4", "container4", "3Gi", requirementsGuaranteed),
+			topologyHint: topoHint(true, 0, 1),
+		},
+		{
+			description: "when affinity is satisfied by brand new group, should create such group (group is subset of zNUMAs)",
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{0},
+					IsZNUMA: true,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           2 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{1},
+					IsZNUMA: true,
+				},
+				2: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           2 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{2},
+					IsZNUMA: true,
+				},
+			},
+			expectedMachineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1 * gb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           0,
+							Reserved:       2 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				2: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           2 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{2},
+					IsZNUMA: true,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod5": map[string][]state.Block{
+					"container5": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         3 * gb,
+						},
+					},
+				},
+			},
+			pod:          farMemPod("pod5", "container5", "3Gi", requirementsGuaranteed),
+			topologyHint: topoHint(true, 0, 1),
+		},
+		{
+			description: "when affinity is satisfied by 1-zNUMA group, update allocation to that group",
+			assignments: state.ContainerMemoryAssignments{
+				"pod3": map[string][]state.Block{
+					"container3": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         1 * gb,
+						},
+					},
+				},
+			},
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1 * gb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           2 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{1},
+					IsZNUMA: true,
+				},
+			},
+			expectedMachineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           0,
+							Reserved:       1536 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0},
+					IsZNUMA:             true,
+					NumberOfAssignments: 2,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           2 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{1},
+					IsZNUMA: true,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod3": map[string][]state.Block{
+					"container3": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         1 * gb,
+						},
+					},
+				},
+				"pod6": map[string][]state.Block{
+					"container6": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         512 * mb,
+						},
+					},
+				},
+			},
+			pod:          farMemPod("pod6", "container6", "512Mi", requirementsGuaranteed),
+			topologyHint: topoHint(true, 0),
+		},
+		{
+			description: "when affinity is satisfied by group with all zNUMAs, update allocation to that group",
+			assignments: state.ContainerMemoryAssignments{
+				"pod3": map[string][]state.Block{
+					"container3": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         3 * gb,
+						},
+					},
+				},
+			},
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1 * gb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           0,
+							Reserved:       2 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+			},
+			expectedMachineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           0,
+							Reserved:       1536 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 2,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           0,
+							Reserved:       2 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 2,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod3": map[string][]state.Block{
+					"container3": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         3 * gb,
+						},
+					},
+				},
+				"pod7": map[string][]state.Block{
+					"container7": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         512 * mb,
+						},
+					},
+				},
+			},
+			pod:          farMemPod("pod7", "container7", "512Mi", requirementsGuaranteed),
+			topologyHint: topoHint(true, 0, 1),
+		},
+		{
+			description: "when affinity is satisfied by group with subset of zNUMAs, update allocation to that group",
+			assignments: state.ContainerMemoryAssignments{
+				"pod3": map[string][]state.Block{
+					"container3": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         3 * gb,
+						},
+					},
+				},
+			},
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1 * gb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           0,
+							Reserved:       2 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				2: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           2 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{2},
+					IsZNUMA: true,
+				},
+			},
+			expectedMachineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           0,
+							Reserved:       1536 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 2,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           0,
+							Reserved:       2 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 2,
+				},
+				2: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           2 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{2},
+					IsZNUMA: true,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod3": map[string][]state.Block{
+					"container3": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         3 * gb,
+						},
+					},
+				},
+				"pod8": map[string][]state.Block{
+					"container8": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         512 * mb,
+						},
+					},
+				},
+			},
+			pod:          farMemPod("pod8", "container8", "512Mi", requirementsGuaranteed),
+			topologyHint: topoHint(true, 0, 1),
+		},
+		{
+			description: "nil affinity, new one satisfied by new group of zNUMAs",
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{0},
+					IsZNUMA: true,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           2 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:   []int{1},
+					IsZNUMA: true,
+				},
+			},
+			expectedMachineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1 * gb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           0,
+							Reserved:       2 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod9": map[string][]state.Block{
+					"container9": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         3 * gb,
+						},
+					},
+				},
+			},
+			pod:          farMemPod("pod9", "container9", "3Gi", requirementsGuaranteed),
+			topologyHint: nilAffinityTopoHint(),
+		},
+		{
+			description: "nil affinity, new one satisfied by existing group of zNUMAs",
+			assignments: state.ContainerMemoryAssignments{
+				"pod3": map[string][]state.Block{
+					"container3": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         1 * gb,
+						},
+					},
+				},
+			},
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1 * gb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    400 * mb,
+							Free:           400 * mb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   400 * mb,
+						},
+					},
+					Cells:   []int{1},
+					IsZNUMA: true,
+				},
+			},
+			expectedMachineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           0,
+							Reserved:       1536 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0},
+					IsZNUMA:             true,
+					NumberOfAssignments: 2,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    400 * mb,
+							Free:           400 * mb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   400 * mb,
+						},
+					},
+					Cells:   []int{1},
+					IsZNUMA: true,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod3": map[string][]state.Block{
+					"container3": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         1 * gb,
+						},
+					},
+				},
+				"pod10": map[string][]state.Block{
+					"container10": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         512 * mb,
+						},
+					},
+				},
+			},
+			pod:          farMemPod("pod10", "container10", "512Mi", requirementsGuaranteed),
+			topologyHint: nilAffinityTopoHint(),
+		},
+		{
+			description: "affinity exists and is enough but group violates single-group invariant",
+			assignments: state.ContainerMemoryAssignments{
+				"pod3": map[string][]state.Block{
+					"container3": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         3 * gb,
+						},
+					},
+				},
+			},
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1 * gb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           0,
+							Reserved:       2 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				2: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1 * gb,
+							Free:           1 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   1 * gb,
+						},
+					},
+					Cells:   []int{2},
+					IsZNUMA: true,
+				},
+			},
+			expectedMachineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1 * gb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           0,
+							Reserved:       2 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				2: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1 * gb,
+							Free:           1 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   1 * gb,
+						},
+					},
+					Cells:   []int{2},
+					IsZNUMA: true,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod3": map[string][]state.Block{
+					"container3": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         3 * gb,
+						},
+					},
+				},
+			},
+			pod:           farMemPod("pod11", "container11", "1536Mi", requirementsGuaranteed),
+			topologyHint:  topoHint(true, 0, 2),
+			expectedError: fmt.Errorf("[farmemorymanager] preferred hint violates NUMA node allocation"),
+		},
+		{
+			description: "affinity exists and is not enough, no alternative exists",
+			assignments: state.ContainerMemoryAssignments{
+				"pod3": map[string][]state.Block{
+					"container3": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         3 * gb,
+						},
+					},
+				},
+			},
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1 * gb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           0,
+							Reserved:       2 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				2: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1 * gb,
+							Free:           1 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   1 * gb,
+						},
+					},
+					Cells:   []int{2},
+					IsZNUMA: true,
+				},
+			},
+			expectedMachineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1 * gb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           0,
+							Reserved:       2 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				2: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1 * gb,
+							Free:           1 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   1 * gb,
+						},
+					},
+					Cells:   []int{2},
+					IsZNUMA: true,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod3": map[string][]state.Block{
+					"container3": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         3 * gb,
+						},
+					},
+				},
+			},
+			pod:           farMemPod("pod12", "container12", "3584Mi", requirementsGuaranteed),
+			topologyHint:  topoHint(true, 0, 1),
+			expectedError: fmt.Errorf("[farmemorymanager] failed to find NUMA nodes to extend the current topology hint"),
+		},
+		{
+			description: "affinity exists and is not enough, but can be expanded to new affinity",
+			assignments: state.ContainerMemoryAssignments{
+				"pod3": map[string][]state.Block{
+					"container3": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         3 * gb,
+						},
+					},
+				},
+			},
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1 * gb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           0,
+							Reserved:       2 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				2: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1 * gb,
+							Free:           1 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   1 * gb,
+						},
+					},
+					Cells:   []int{2},
+					IsZNUMA: true,
+				},
+			},
+			expectedMachineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1 * gb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           0,
+							Reserved:       2 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				2: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1 * gb,
+							Free:           512 * mb,
+							Reserved:       512 * mb,
+							SystemReserved: 0,
+							TotalMemSize:   1 * gb,
+						},
+					},
+					Cells:               []int{2},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod3": map[string][]state.Block{
+					"container3": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         3 * gb,
+						},
+					},
+				},
+				"pod13": map[string][]state.Block{
+					"container13": {
+						{
+							NUMAAffinity: []int{2},
+							Type:         v1.ResourceMemory,
+							Size:         512 * mb,
+						},
+					},
+				},
+			},
+			pod:          farMemPod("pod13", "container13", "512Mi", requirementsGuaranteed),
+			topologyHint: topoHint(true, 1),
+		},
+		{
+			description: "affinity exists and is not enough, but can be expanded to new affinity that comprises old one",
+			assignments: state.ContainerMemoryAssignments{
+				"pod3": map[string][]state.Block{
+					"container3": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         3 * gb,
+						},
+					},
+				},
+			},
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1 * gb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           0,
+							Reserved:       2 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 1,
+				},
+			},
+			expectedMachineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           0,
+							Reserved:       1536 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 2,
+				},
+				1: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    2 * gb,
+							Free:           0,
+							Reserved:       2 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells:               []int{0, 1},
+					IsZNUMA:             true,
+					NumberOfAssignments: 2,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod3": map[string][]state.Block{
+					"container3": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         3 * gb,
+						},
+					},
+				},
+				"pod14": map[string][]state.Block{
+					"container14": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         512 * mb,
+						},
+					},
+				},
+			},
+			pod:          farMemPod("pod14", "container14", "512Mi", requirementsGuaranteed),
+			topologyHint: topoHint(true, 1),
+		},
 	}
 
 	for _, tc := range testCases {
@@ -4250,10 +5497,17 @@ func topoHint(preferred bool, numas ...int) *topologymanager.TopologyHint {
 	}
 }
 
-func emptyTopoHint(preferred bool) *topologymanager.TopologyHint {
+func emptyTopoHint() *topologymanager.TopologyHint {
 	return &topologymanager.TopologyHint{
 		NUMANodeAffinity: bitmask.NewEmptyBitMask(),
-		Preferred:        preferred,
+		Preferred:        true,
+	}
+}
+
+func nilAffinityTopoHint() *topologymanager.TopologyHint {
+	return &topologymanager.TopologyHint{
+		NUMANodeAffinity: nil,
+		Preferred:        false,
 	}
 }
 
@@ -4272,7 +5526,7 @@ func TestFarMemMgrGetTopologyHints(t *testing.T) {
 		{
 			description:      "Doesn't request any far memory",
 			pod:              getPod("pod2", "container2", requirementsGuaranteed),
-			expectedTopoHint: emptyTopoHint(true),
+			expectedTopoHint: emptyTopoHint(),
 			systemReserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 512 * mb,
@@ -4282,7 +5536,7 @@ func TestFarMemMgrGetTopologyHints(t *testing.T) {
 		{
 			description:      "Requests 0 far memory",
 			pod:              farMemPod("pod3", "container3", "0Gi", requirementsGuaranteed),
-			expectedTopoHint: emptyTopoHint(true),
+			expectedTopoHint: emptyTopoHint(),
 			systemReserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 512 * mb,
