@@ -2054,7 +2054,88 @@ func TestStaticPolicyAllocate(t *testing.T) {
 }
 
 func TestStaticPolicyAllocateFarMem(t *testing.T) {
-	testCases := []testFarMemStaticPolicy{}
+	testCases := []testFarMemStaticPolicy{
+		{
+			description:         "should do nothing for non-guaranteed pods",
+			expectedAssignments: state.ContainerMemoryAssignments{},
+			machineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells: []int{},
+				},
+			},
+			expectedMachineState: state.NUMANodeMap{
+				0: &state.NUMANodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+					},
+					Cells: []int{},
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			pod:                   farMemPod("pod1", "container1", "2Gi", requirementsBurstable),
+			expectedTopologyHints: nil,
+			topologyHint:          &topologymanager.TopologyHint{},
+		},
+		// {
+		// 	description:         "should do nothing when hint is don't care because pod doesn't want far mem",
+		// 	expectedAssignments: state.ContainerMemoryAssignments{},
+		// 	machineState: state.NUMANodeMap{
+		// 		0: &state.NUMANodeState{
+		// 			MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+		// 				v1.ResourceMemory: {
+		// 					Allocatable:    1536 * mb,
+		// 					Free:           1536 * mb,
+		// 					Reserved:       0,
+		// 					SystemReserved: 512 * mb,
+		// 					TotalMemSize:   2 * gb,
+		// 				},
+		// 			},
+		// 			Cells: []int{},
+		// 		},
+		// 	},
+		// 	expectedMachineState: state.NUMANodeMap{
+		// 		0: &state.NUMANodeState{
+		// 			MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+		// 				v1.ResourceMemory: {
+		// 					Allocatable:    1536 * mb,
+		// 					Free:           1536 * mb,
+		// 					Reserved:       0,
+		// 					SystemReserved: 512 * mb,
+		// 					TotalMemSize:   2 * gb,
+		// 				},
+		// 			},
+		// 			Cells: []int{},
+		// 		},
+		// 	},
+		// 	systemReserved: systemReservedMemory{
+		// 		0: map[v1.ResourceName]uint64{
+		// 			v1.ResourceMemory: 512 * mb,
+		// 		},
+		// 	},
+		// 	pod:                   farMemPod("pod2", "container2", "0Gi", requirementsGuaranteed),
+		// 	expectedTopologyHints: nil,
+		// 	topologyHint:          &topologymanager.TopologyHint{},
+		// },
+	}
 
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
@@ -4171,7 +4252,7 @@ func topoHint(preferred bool, numas ...int) *topologymanager.TopologyHint {
 
 func emptyTopoHint(preferred bool) *topologymanager.TopologyHint {
 	return &topologymanager.TopologyHint{
-		NUMANodeAffinity: nil,
+		NUMANodeAffinity: bitmask.NewEmptyBitMask(),
 		Preferred:        preferred,
 	}
 }

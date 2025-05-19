@@ -672,7 +672,7 @@ func (p *staticPolicy) calculateFarMemHints(machineState state.NUMANodeMap, pod 
 	if requestedFarMem == 0 {
 		// This hint symbolizes that the pod/container needs no far memory so no zNUMAs should
 		// be allocated.
-		return farMemoryHint(nil, true)
+		return farMemoryHint(bitmask.NewEmptyBitMask(), true)
 	}
 
 	var zNUMAs []int
