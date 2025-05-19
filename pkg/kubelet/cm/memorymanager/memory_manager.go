@@ -42,7 +42,7 @@ import (
 
 const (
 	NormalMemMgrName = "memory_manager"
-	HetMemMgrName    = "h_memory_manager"
+	FarMemMgrName    = "far_memory_manager"
 
 	// memoryManagerStateFileNameSuffix is the suffix of the file name where memory manager stores
 	// its state. The complete file name is `.name + memoryManagerStateFileNameSuffix`
@@ -143,9 +143,9 @@ var _ Manager = &manager{}
 func NewManager(name, policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, reservedMemory []kubeletconfig.MemoryReservation, stateFileDirectory string, affinity topologymanager.Store) (Manager, error) {
 	var policy Policy
 
-	if name != NormalMemMgrName && name != HetMemMgrName {
+	if name != NormalMemMgrName && name != FarMemMgrName {
 		return nil, fmt.Errorf("only allowed memory manager names are %s and %s, got %s",
-			NormalMemMgrName, HetMemMgrName, name)
+			NormalMemMgrName, FarMemMgrName, name)
 	}
 
 	switch policyType(policyName) {

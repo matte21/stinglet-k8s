@@ -351,7 +351,7 @@ func NewContainerManager(mountUtil mount.Interface, cadvisorInterface cadvisor.I
 
 	// Initialize the far memory manager.
 	farMemMgr, err := memorymanager.NewManager(
-		memorymanager.HetMemMgrName,
+		memorymanager.FarMemMgrName,
 		nodeConfig.MemoryManagerPolicy,
 		machineInfo,
 		cm.GetNodeAllocatableReservation(),

@@ -4143,7 +4143,7 @@ func emptyTopoHint(preferred bool) *topologymanager.TopologyHint {
 	}
 }
 
-func TestHMemMgrGetTopologyHints(t *testing.T) {
+func TestFarMemMgrGetTopologyHints(t *testing.T) {
 	testCases := []testFarMemStaticPolicy{
 		{
 			description:           "Not Guaranteed (but requests far memory)",
@@ -4605,7 +4605,7 @@ func initFarMemTests(t *testing.T, testCase *testFarMemStaticPolicy, hint *topol
 		manager = topologymanager.NewFakeManagerWithHint(hint)
 	}
 
-	p, err := NewPolicyStatic(HetMemMgrName, testCase.machineInfo, testCase.systemReserved, manager)
+	p, err := NewPolicyStatic(FarMemMgrName, testCase.machineInfo, testCase.systemReserved, manager)
 	if err != nil {
 		return nil, nil, err
 	}

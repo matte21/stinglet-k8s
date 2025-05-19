@@ -723,7 +723,7 @@ func (p *staticPolicy) calculateFarMemHints(machineState state.NUMANodeMap, pod 
 
 	aff, err := bitmask.NewBitMask(bestCombo...)
 	if err != nil {
-		klog.ErrorS(err, "hmemorymanager failed to parse combo into bitmask", "combo", bestCombo)
+		klog.ErrorS(err, "farmemorymanager failed to parse combo into bitmask", "combo", bestCombo)
 		return farMemoryHint(nil, false)
 	}
 
