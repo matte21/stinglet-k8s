@@ -1063,6 +1063,30 @@ func isAffinitySatisfyRequest(machineState state.NUMANodeMap, mask bitmask.BitMa
 // it possible that we will get the subset of hint that we provided to the topology manager, in this case we want to extend
 // it to the original one
 func (p *staticPolicy) extendTopologyManagerHint(machineState state.NUMANodeMap, pod *v1.Pod, requestedResources map[v1.ResourceName]uint64, mask bitmask.BitMask) (*topologymanager.TopologyHint, error) {
+	if p.mgrName == FarMemMgrName {
+		// This code is different than the the equivalent code for the normal memory case (which is
+		// still in this function, immediately below). In the normal case, since the hint must be
+		// as aligned as possible to the potential hints of other providers that we do not know,
+		// but that we know also produced hints comprising `mask`, we must find a hint that
+		// comprises `mask` too. But for far memory, no alignment with other providers' hints is
+		// performed, hence we can ignore mask: any hint will work.
+		hints := p.calculateFarMemHints(machineState, pod, requestedResources[v1.ResourceMemory])
+
+		if len(hints) > 1 {
+			panic(fmt.Sprintf("far memory manager returned hints for resource types other than %s", string(v1.ResourceMemory)))
+		}
+
+		if len(hints[string(v1.ResourceMemory)]) != 1 {
+			panic(fmt.Sprintf("far memory manager returned %d hints for resource type %s, exactly one expected", string(v1.ResourceMemory)))
+		}
+
+		if !hints[string(v1.ResourceMemory)][0].Preferred {
+			return nil, fmt.Errorf("[%s] failed to find NUMA nodes to extend the current topology hint", strings.ReplaceAll(p.mgrName, "_", ""))
+		}
+
+		return &hints[string(v1.ResourceMemory)][0], nil
+	}
+
 	hints := p.calculateHints(machineState, pod, requestedResources)
 
 	var filteredHints []topologymanager.TopologyHint
