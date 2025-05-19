@@ -1077,7 +1077,7 @@ func (p *staticPolicy) extendTopologyManagerHint(machineState state.NUMANodeMap,
 		}
 
 		if len(hints[string(v1.ResourceMemory)]) != 1 {
-			panic(fmt.Sprintf("far memory manager returned %d hints for resource type %s, exactly one expected", string(v1.ResourceMemory)))
+			panic(fmt.Sprintf("far memory manager returned %d hints for resource type %s, exactly one expected", len(hints[string(v1.ResourceMemory)]), v1.ResourceMemory))
 		}
 
 		if !hints[string(v1.ResourceMemory)][0].Preferred {
