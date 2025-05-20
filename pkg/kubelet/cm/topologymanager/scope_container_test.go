@@ -21,6 +21,10 @@ import (
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/kubernetes/pkg/kubelet/cm/containermap"
+	"k8s.io/kubernetes/pkg/kubelet/lifecycle"
 )
 
 func TestContainerCalculateAffinity(t *testing.T) {
@@ -264,5 +268,81 @@ func TestContainerAccumulateProvidersHints(t *testing.T) {
 		if !reflect.DeepEqual(actual, tc.expected) {
 			t.Errorf("Test Case %s: Expected NUMANodeAffinity in result to be %v, got %v", tc.name, tc.expected, actual)
 		}
+	}
+}
+
+func TestAdmitWFarMem(t *testing.T) {
+	testCases := []struct {
+		name                string
+		hintProviders       []HintProvider
+		farMemHint          TopologyHint
+		expectedResult      lifecycle.PodAdmitResult
+		expectedAlignedHint TopologyHint
+		expectedFarMemHint  TopologyHint
+	}{}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctnScope := cntScope(tc.hintProviders, tc.farMemHint)
+
+			podUID := "pod1"
+			cntName := "container1"
+			pod := guaranteedPod(podUID, cntName)
+
+			admitRes := ctnScope.Admit(pod)
+
+			if admitRes != tc.expectedResult {
+				t.Fatalf("Got admit result %#v, expected %#v", admitRes, tc.expectedResult)
+			}
+
+			alignedHint := ctnScope.GetAffinity(podUID, cntName)
+			if !reflect.DeepEqual(alignedHint, tc.expectedAlignedHint) {
+				t.Fatalf("Got aligned hint %#v, expected %#v", alignedHint, tc.expectedAlignedHint)
+			}
+
+			farMemHint := ctnScope.GetFarMemAffinity(podUID, cntName)
+			if !reflect.DeepEqual(farMemHint, tc.expectedFarMemHint) {
+				t.Fatalf("Got far mem hint %#v, expected %#v", farMemHint, tc.expectedFarMemHint)
+			}
+		})
+	}
+}
+
+func guaranteedPod(uid, containerName string) *v1.Pod {
+	return &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			UID: types.UID(uid),
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name:      containerName,
+					Resources: v1.ResourceRequirements{},
+				},
+			},
+		},
+		Status: v1.PodStatus{
+			QOSClass: v1.PodQOSGuaranteed,
+		},
+	}
+}
+
+func cntScope(hps []HintProvider, farMemHint TopologyHint) containerScope {
+	return containerScope{
+		scope{
+			podTopologyHints: podTopologyHints{},
+			policy: NewBestEffortPolicy(
+				commonNUMAInfoEightNodes(),
+				PolicyOptions{false, defaultMaxAllowableNUMANodes},
+			),
+			podMap:            containermap.NewContainerMap(),
+			podFarMemAffinity: map[string]map[string]TopologyHint{},
+			hintProviders:     hps,
+			farMemMgr: &mockHintProvider{
+				th: map[string][]TopologyHint{
+					string(v1.ResourceMemory): []TopologyHint{farMemHint},
+				},
+			},
+		},
 	}
 }
