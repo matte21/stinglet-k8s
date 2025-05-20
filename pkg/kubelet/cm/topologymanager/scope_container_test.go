@@ -23,7 +23,9 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/kubernetes/pkg/kubelet/cm/admission"
 	"k8s.io/kubernetes/pkg/kubelet/cm/containermap"
+	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 	"k8s.io/kubernetes/pkg/kubelet/lifecycle"
 )
 
@@ -275,11 +277,152 @@ func TestAdmitWFarMem(t *testing.T) {
 	testCases := []struct {
 		name                string
 		hintProviders       []HintProvider
-		farMemHint          TopologyHint
+		farMemHint          *TopologyHint
 		expectedResult      lifecycle.PodAdmitResult
 		expectedAlignedHint TopologyHint
 		expectedFarMemHint  TopologyHint
-	}{}
+	}{
+		{
+			name: "aligned hint found, far mem hint is not but no fr mem request is 0, nil hint",
+			hintProviders: []HintProvider{
+				&mockHintProvider{
+					th: map[string][]TopologyHint{
+						string(v1.ResourceCPU): []TopologyHint{
+							{Preferred: true, NUMANodeAffinity: NewTestBitMask(0, 1)},
+						},
+					},
+				},
+			},
+			farMemHint:          nil,
+			expectedResult:      lifecycle.PodAdmitResult{Admit: true},
+			expectedAlignedHint: TopologyHint{Preferred: true, NUMANodeAffinity: NewTestBitMask(0, 1)},
+			expectedFarMemHint:  TopologyHint{},
+		},
+		{
+			name: "aligned hint found, far mem hint is not but no fr mem request is 0, non-nil hint with nil affinity",
+			hintProviders: []HintProvider{
+				&mockHintProvider{
+					th: map[string][]TopologyHint{
+						string(v1.ResourceCPU): []TopologyHint{
+							{Preferred: true, NUMANodeAffinity: NewTestBitMask(0, 1)},
+						},
+					},
+				},
+			},
+			farMemHint:          &TopologyHint{Preferred: true, NUMANodeAffinity: nil},
+			expectedResult:      lifecycle.PodAdmitResult{Admit: true},
+			expectedAlignedHint: TopologyHint{Preferred: true, NUMANodeAffinity: NewTestBitMask(0, 1)},
+			expectedFarMemHint:  TopologyHint{Preferred: true, NUMANodeAffinity: nil},
+		},
+		{
+			name: "aligned hint found, far mem hint is not but no fr mem request is 0, non-nil hint with 0 affinity",
+			hintProviders: []HintProvider{
+				&mockHintProvider{
+					th: map[string][]TopologyHint{
+						string(v1.ResourceCPU): []TopologyHint{
+							{Preferred: true, NUMANodeAffinity: NewTestBitMask(0, 1)},
+						},
+					},
+				},
+			},
+			farMemHint:          &TopologyHint{Preferred: true, NUMANodeAffinity: bitmask.NewEmptyBitMask()},
+			expectedResult:      lifecycle.PodAdmitResult{Admit: true},
+			expectedAlignedHint: TopologyHint{Preferred: true, NUMANodeAffinity: NewTestBitMask(0, 1)},
+			expectedFarMemHint:  TopologyHint{Preferred: true, NUMANodeAffinity: bitmask.NewEmptyBitMask()},
+		},
+		{
+			name: "aligned hint found, far mem hint is not, nil affinity",
+			hintProviders: []HintProvider{
+				&mockHintProvider{
+					th: map[string][]TopologyHint{
+						string(v1.ResourceCPU): []TopologyHint{
+							{Preferred: true, NUMANodeAffinity: NewTestBitMask(0, 1)},
+						},
+					},
+				},
+			},
+			farMemHint:          &TopologyHint{Preferred: false, NUMANodeAffinity: nil},
+			expectedResult:      admission.GetPodAdmitResult(&TopologyAffinityError{}),
+			expectedAlignedHint: TopologyHint{},
+			expectedFarMemHint:  TopologyHint{},
+		},
+		{
+			name: "aligned hint found, far mem hint is not, 0 affinity",
+			hintProviders: []HintProvider{
+				&mockHintProvider{
+					th: map[string][]TopologyHint{
+						string(v1.ResourceCPU): []TopologyHint{
+							{Preferred: true, NUMANodeAffinity: NewTestBitMask(0, 1)},
+						},
+					},
+				},
+			},
+			farMemHint:          &TopologyHint{Preferred: false, NUMANodeAffinity: bitmask.NewEmptyBitMask()},
+			expectedResult:      admission.GetPodAdmitResult(&TopologyAffinityError{}),
+			expectedAlignedHint: TopologyHint{},
+			expectedFarMemHint:  TopologyHint{Preferred: false, NUMANodeAffinity: nil},
+		},
+		{
+			name: "aligned hint not found, far mem hint is found",
+			hintProviders: []HintProvider{
+				&mockHintProvider{
+					th: map[string][]TopologyHint{
+						string(v1.ResourceCPU): []TopologyHint{},
+					},
+				},
+			},
+			farMemHint:          &TopologyHint{Preferred: true, NUMANodeAffinity: NewTestBitMask(2)},
+			expectedResult:      admission.GetPodAdmitResult(&TopologyAffinityError{}),
+			expectedAlignedHint: TopologyHint{},
+			expectedFarMemHint:  TopologyHint{},
+		},
+		{
+			name: "aligned hint not found, far mem hint request is 0",
+			hintProviders: []HintProvider{
+				&mockHintProvider{
+					th: map[string][]TopologyHint{
+						string(v1.ResourceCPU): []TopologyHint{},
+					},
+				},
+			},
+			farMemHint:          &TopologyHint{Preferred: true, NUMANodeAffinity: bitmask.NewEmptyBitMask()},
+			expectedResult:      admission.GetPodAdmitResult(&TopologyAffinityError{}),
+			expectedAlignedHint: TopologyHint{},
+			expectedFarMemHint:  TopologyHint{},
+		},
+		{
+			name: "both hints are found, far memory request is non-0",
+			hintProviders: []HintProvider{
+				&mockHintProvider{
+					th: map[string][]TopologyHint{
+						string(v1.ResourceCPU): []TopologyHint{
+							{Preferred: true, NUMANodeAffinity: NewTestBitMask(0, 1)},
+						},
+					},
+				},
+			},
+			farMemHint:          &TopologyHint{Preferred: true, NUMANodeAffinity: NewTestBitMask(2)},
+			expectedResult:      lifecycle.PodAdmitResult{Admit: true},
+			expectedAlignedHint: TopologyHint{Preferred: true, NUMANodeAffinity: NewTestBitMask(0, 1)},
+			expectedFarMemHint:  TopologyHint{Preferred: true, NUMANodeAffinity: NewTestBitMask(2)},
+		},
+		{
+			name: "both hints are found, far memory request is 0",
+			hintProviders: []HintProvider{
+				&mockHintProvider{
+					th: map[string][]TopologyHint{
+						string(v1.ResourceCPU): []TopologyHint{
+							{Preferred: true, NUMANodeAffinity: NewTestBitMask(0, 1)},
+						},
+					},
+				},
+			},
+			farMemHint:          &TopologyHint{Preferred: true, NUMANodeAffinity: bitmask.NewEmptyBitMask()},
+			expectedResult:      lifecycle.PodAdmitResult{Admit: true},
+			expectedAlignedHint: TopologyHint{Preferred: true, NUMANodeAffinity: NewTestBitMask(0, 1)},
+			expectedFarMemHint:  TopologyHint{Preferred: true, NUMANodeAffinity: bitmask.NewEmptyBitMask()},
+		},
+	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -327,11 +470,18 @@ func guaranteedPod(uid, containerName string) *v1.Pod {
 	}
 }
 
-func cntScope(hps []HintProvider, farMemHint TopologyHint) containerScope {
+func cntScope(hps []HintProvider, farMemHint *TopologyHint) containerScope {
+	var th map[string][]TopologyHint
+	if farMemHint != nil {
+		th = map[string][]TopologyHint{
+			string(v1.ResourceMemory): []TopologyHint{*farMemHint},
+		}
+	}
+
 	return containerScope{
 		scope{
 			podTopologyHints: podTopologyHints{},
-			policy: NewBestEffortPolicy(
+			policy: NewRestrictedPolicy(
 				commonNUMAInfoEightNodes(),
 				PolicyOptions{false, defaultMaxAllowableNUMANodes},
 			),
@@ -339,9 +489,7 @@ func cntScope(hps []HintProvider, farMemHint TopologyHint) containerScope {
 			podFarMemAffinity: map[string]map[string]TopologyHint{},
 			hintProviders:     hps,
 			farMemMgr: &mockHintProvider{
-				th: map[string][]TopologyHint{
-					string(v1.ResourceMemory): []TopologyHint{farMemHint},
-				},
+				th: th,
 			},
 		},
 	}
