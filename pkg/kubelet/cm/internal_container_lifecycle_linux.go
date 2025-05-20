@@ -38,6 +38,12 @@ func (i *internalContainerLifecycleImpl) PreCreateContainer(pod *v1.Pod, contain
 
 	if i.memoryManager != nil {
 		numaNodes := i.memoryManager.GetMemoryNUMANodes(pod, container)
+
+		if i.farMemoryManager != nil {
+			zNUMANodes := i.farMemoryManager.GetMemoryNUMANodes(pod, container)
+			numaNodes.Union(zNUMANodes)
+		}
+
 		if numaNodes.Len() > 0 {
 			var affinity []string
 			for _, numaNode := range sets.List(numaNodes) {

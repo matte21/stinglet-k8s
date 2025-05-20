@@ -129,6 +129,8 @@ type containerManagerImpl struct {
 	cpuManager cpumanager.Manager
 	// Interface for memory affinity management.
 	memoryManager memorymanager.Manager
+	// Interface for far memory affinity management.
+	farMemoryManager memorymanager.Manager
 	// Interface for Topology resource co-ordination
 	topologyManager topologymanager.Manager
 	// Interface for Dynamic Resource Allocation management.
@@ -350,7 +352,7 @@ func NewContainerManager(mountUtil mount.Interface, cadvisorInterface cadvisor.I
 	cm.topologyManager.AddHintProvider(cm.memoryManager)
 
 	// Initialize the far memory manager.
-	farMemMgr, err := memorymanager.NewManager(
+	cm.farMemoryManager, err = memorymanager.NewManager(
 		memorymanager.FarMemMgrName,
 		nodeConfig.MemoryManagerPolicy,
 		machineInfo,
@@ -363,7 +365,7 @@ func NewContainerManager(mountUtil mount.Interface, cadvisorInterface cadvisor.I
 		klog.ErrorS(err, "Failed to initialize far memory manager")
 		return nil, err
 	}
-	cm.topologyManager.AddFarMemMgr(farMemMgr)
+	cm.topologyManager.AddFarMemMgr(cm.farMemoryManager)
 
 	return cm, nil
 }
@@ -399,7 +401,7 @@ func (cm *containerManagerImpl) ContainerHasExclusiveCPUs(pod *v1.Pod, container
 }
 
 func (cm *containerManagerImpl) InternalContainerLifecycle() InternalContainerLifecycle {
-	return &internalContainerLifecycleImpl{cm.cpuManager, cm.memoryManager, cm.topologyManager}
+	return &internalContainerLifecycleImpl{cm.cpuManager, cm.memoryManager, cm.farMemoryManager, cm.topologyManager}
 }
 
 // Create a cgroup container manager.
