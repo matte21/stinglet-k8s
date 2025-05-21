@@ -613,6 +613,11 @@ func (cm *containerManagerImpl) Start(ctx context.Context, node *v1.Node,
 		return fmt.Errorf("start memory manager error: %w", err)
 	}
 
+	err = cm.farMemoryManager.Start(memorymanager.ActivePodsFunc(activePods), sourcesReady, podStatusProvider, runtimeService, containerMap.Clone())
+	if err != nil {
+		return fmt.Errorf("start far memory manager error: %w", err)
+	}
+
 	// cache the node Info including resource capacity and
 	// allocatable of the node
 	cm.nodeInfo = node
