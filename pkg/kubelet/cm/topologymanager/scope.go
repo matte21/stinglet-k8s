@@ -24,6 +24,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/cm/admission"
 	"k8s.io/kubernetes/pkg/kubelet/cm/containermap"
 	"k8s.io/kubernetes/pkg/kubelet/lifecycle"
+	"k8s.io/kubernetes/pkg/kubelet/metrics"
 )
 
 const (
@@ -169,6 +170,15 @@ func (s *scope) admitPolicyNone(pod *v1.Pod) lifecycle.PodAdmitResult {
 		if err != nil {
 			return admission.GetPodAdmitResult(err)
 		}
+
+		// TODO: add tests.
+		// Now, allocate far memory.
+		err = s.farMemMgr.Allocate(pod, &container)
+		if err != nil {
+			metrics.TopologyManagerAdmissionErrorsTotal.Inc()
+			return admission.GetPodAdmitResult(err)
+		}
+
 	}
 	return admission.GetPodAdmitResult(nil)
 }
