@@ -197,6 +197,65 @@ func TestComputePodQOS(t *testing.T) {
 			expected:                 v1.PodQOSBurstable,
 			podLevelResourcesEnabled: true,
 		},
+		{
+			pod: newPodWithAnnotations(
+				"guaranteed-with-0-mem-reqs-and-limits-but-far-mem",
+				[]v1.Container{
+					newContainer("guaranteed", getResourceList("5m", "0Mi"), getResourceList("5m", "0Mi")),
+				},
+				"guaranteed/far-mem",
+				"2Gi",
+			),
+			expected: v1.PodQOSGuaranteed,
+		},
+		{
+			pod: newPodWithAnnotations(
+				"guaranteed-with-far-mem",
+				[]v1.Container{
+					newContainer("guaranteed", getResourceList("5m", "1Mi"), getResourceList("5m", "1Mi")),
+				},
+				"guaranteed/far-mem",
+				"2Gi",
+			),
+			expected: v1.PodQOSGuaranteed,
+		},
+		{
+			pod: newPodWithAnnotations(
+				"burstable-with-far-mem",
+				[]v1.Container{
+					newContainer("burstable", getResourceList("5m", "1Mi"), getResourceList("5m", "2Mi")),
+				},
+				"burstable/far-mem",
+				"2Gi",
+			),
+			expected: v1.PodQOSBurstable,
+		},
+		{
+			pod: newPodWithAnnotations(
+				"burstable-with-0-mem-reqs-and-limits-far-mem-but-other-burstable-container",
+				[]v1.Container{
+					newContainer("guaranteed-wannabe", getResourceList("5m", "0Mi"), getResourceList("5m", "0Mi")),
+					newContainer("burstable", getResourceList("5m", "1Mi"), getResourceList("5m", "2Mi")),
+				},
+				"guaranteed-wannabe/far-mem",
+				"2Gi",
+			),
+			expected: v1.PodQOSBurstable,
+		},
+		{
+			pod: newPodWithAnnotations(
+				"guaranteed-2-containers-with-0-mem-reqs-and-limits-but-far-mem",
+				[]v1.Container{
+					newContainer("guaranteed-1", getResourceList("5m", "0Mi"), getResourceList("5m", "0Mi")),
+					newContainer("guaranteed-2", getResourceList("10m", "0Mi"), getResourceList("10m", "0Mi")),
+				},
+				"guaranteed-1/far-mem",
+				"2Gi",
+				"guaranteed-2/far-mem",
+				"2Ki",
+			),
+			expected: v1.PodQOSGuaranteed,
+		},
 	}
 	for id, testCase := range testCases {
 		featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.PodLevelResources, testCase.podLevelResourcesEnabled)
@@ -271,6 +330,24 @@ func newPodWithInitContainers(name string, containers []v1.Container, initContai
 		Spec: v1.PodSpec{
 			Containers:     containers,
 			InitContainers: initContainers,
+		},
+	}
+}
+
+func newPodWithAnnotations(name string, containers []v1.Container, keyVals ...string) *v1.Pod {
+	annotations := map[string]string{}
+	for i := range keyVals {
+		if i%2 == 1 {
+			annotations[keyVals[i-1]] = keyVals[i]
+		}
+	}
+	return &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        name,
+			Annotations: annotations,
+		},
+		Spec: v1.PodSpec{
+			Containers: containers,
 		},
 	}
 }

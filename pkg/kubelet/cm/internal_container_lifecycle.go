@@ -17,7 +17,7 @@ limitations under the License.
 package cm
 
 import (
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager"
 	"k8s.io/kubernetes/pkg/kubelet/cm/memorymanager"
@@ -32,9 +32,10 @@ type InternalContainerLifecycle interface {
 
 // Implements InternalContainerLifecycle interface.
 type internalContainerLifecycleImpl struct {
-	cpuManager      cpumanager.Manager
-	memoryManager   memorymanager.Manager
-	topologyManager topologymanager.Manager
+	cpuManager       cpumanager.Manager
+	memoryManager    memorymanager.Manager
+	farMemoryManager memorymanager.Manager
+	topologyManager  topologymanager.Manager
 }
 
 func (i *internalContainerLifecycleImpl) PreStartContainer(pod *v1.Pod, container *v1.Container, containerID string) error {

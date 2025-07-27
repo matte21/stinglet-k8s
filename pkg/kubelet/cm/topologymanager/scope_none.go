@@ -17,7 +17,7 @@ limitations under the License.
 package topologymanager
 
 import (
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/kubernetes/pkg/kubelet/cm/containermap"
 	"k8s.io/kubernetes/pkg/kubelet/lifecycle"
 )
@@ -33,10 +33,11 @@ var _ Scope = &noneScope{}
 func NewNoneScope() Scope {
 	return &noneScope{
 		scope{
-			name:             noneTopologyScope,
-			podTopologyHints: podTopologyHints{},
-			policy:           NewNonePolicy(),
-			podMap:           containermap.NewContainerMap(),
+			name:              noneTopologyScope,
+			podTopologyHints:  podTopologyHints{},
+			policy:            NewNonePolicy(),
+			podMap:            containermap.NewContainerMap(),
+			podFarMemAffinity: map[string]map[string]TopologyHint{},
 		},
 	}
 }

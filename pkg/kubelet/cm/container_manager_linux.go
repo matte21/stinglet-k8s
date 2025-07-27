@@ -129,6 +129,8 @@ type containerManagerImpl struct {
 	cpuManager cpumanager.Manager
 	// Interface for memory affinity management.
 	memoryManager memorymanager.Manager
+	// Interface for far memory affinity management.
+	farMemoryManager memorymanager.Manager
 	// Interface for Topology resource co-ordination
 	topologyManager topologymanager.Manager
 	// Interface for Dynamic Resource Allocation management.
@@ -335,6 +337,7 @@ func NewContainerManager(mountUtil mount.Interface, cadvisorInterface cadvisor.I
 	cm.topologyManager.AddHintProvider(cm.cpuManager)
 
 	cm.memoryManager, err = memorymanager.NewManager(
+		memorymanager.NormalMemMgrName,
 		nodeConfig.MemoryManagerPolicy,
 		machineInfo,
 		cm.GetNodeAllocatableReservation(),
@@ -347,6 +350,22 @@ func NewContainerManager(mountUtil mount.Interface, cadvisorInterface cadvisor.I
 		return nil, err
 	}
 	cm.topologyManager.AddHintProvider(cm.memoryManager)
+
+	// Initialize the far memory manager.
+	cm.farMemoryManager, err = memorymanager.NewManager(
+		memorymanager.FarMemMgrName,
+		nodeConfig.MemoryManagerPolicy,
+		machineInfo,
+		cm.GetNodeAllocatableReservation(),
+		nodeConfig.MemoryManagerReservedMemory,
+		nodeConfig.KubeletRootDir,
+		cm.topologyManager,
+	)
+	if err != nil {
+		klog.ErrorS(err, "Failed to initialize far memory manager")
+		return nil, err
+	}
+	cm.topologyManager.AddFarMemMgr(cm.farMemoryManager)
 
 	return cm, nil
 }
@@ -382,7 +401,7 @@ func (cm *containerManagerImpl) ContainerHasExclusiveCPUs(pod *v1.Pod, container
 }
 
 func (cm *containerManagerImpl) InternalContainerLifecycle() InternalContainerLifecycle {
-	return &internalContainerLifecycleImpl{cm.cpuManager, cm.memoryManager, cm.topologyManager}
+	return &internalContainerLifecycleImpl{cm.cpuManager, cm.memoryManager, cm.farMemoryManager, cm.topologyManager}
 }
 
 // Create a cgroup container manager.
@@ -592,6 +611,11 @@ func (cm *containerManagerImpl) Start(ctx context.Context, node *v1.Node,
 	err = cm.memoryManager.Start(memorymanager.ActivePodsFunc(activePods), sourcesReady, podStatusProvider, runtimeService, containerMap.Clone())
 	if err != nil {
 		return fmt.Errorf("start memory manager error: %w", err)
+	}
+
+	err = cm.farMemoryManager.Start(memorymanager.ActivePodsFunc(activePods), sourcesReady, podStatusProvider, runtimeService, containerMap.Clone())
+	if err != nil {
+		return fmt.Errorf("start far memory manager error: %w", err)
 	}
 
 	// cache the node Info including resource capacity and

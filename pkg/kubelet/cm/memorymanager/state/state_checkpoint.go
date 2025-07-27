@@ -19,6 +19,7 @@ package state
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"k8s.io/klog/v2"
@@ -37,7 +38,7 @@ type stateCheckpoint struct {
 }
 
 // NewCheckpointState creates new State for keeping track of memory/pod assignment with checkpoint backend
-func NewCheckpointState(stateDir, checkpointName, policyName string) (State, error) {
+func NewCheckpointState(stateDir, checkpointName, policyName, mgrName string) (State, error) {
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize checkpoint manager: %v", err)
@@ -49,7 +50,7 @@ func NewCheckpointState(stateDir, checkpointName, policyName string) (State, err
 		checkpointName:    checkpointName,
 	}
 
-	if err := stateCheckpoint.restoreState(); err != nil {
+	if err := stateCheckpoint.restoreState(mgrName); err != nil {
 		//nolint:staticcheck // ST1005 user-facing error message
 		return nil, fmt.Errorf("could not restore state from checkpoint: %v, please drain this node and delete the memory manager checkpoint file %q before restarting Kubelet",
 			err, filepath.Join(stateDir, checkpointName))
@@ -59,7 +60,7 @@ func NewCheckpointState(stateDir, checkpointName, policyName string) (State, err
 }
 
 // restores state from a checkpoint and creates it if it doesn't exist
-func (sc *stateCheckpoint) restoreState() error {
+func (sc *stateCheckpoint) restoreState(mgrName string) error {
 	sc.Lock()
 	defer sc.Unlock()
 	var err error
@@ -73,7 +74,7 @@ func (sc *stateCheckpoint) restoreState() error {
 	}
 
 	if sc.policyName != checkpoint.PolicyName {
-		return fmt.Errorf("[memorymanager] configured policy %q differs from state checkpoint policy %q", sc.policyName, checkpoint.PolicyName)
+		return fmt.Errorf("["+strings.ReplaceAll(mgrName, "_", "")+"] configured policy %q differs from state checkpoint policy %q", sc.policyName, checkpoint.PolicyName)
 	}
 
 	sc.cache.SetMachineState(checkpoint.MachineState)

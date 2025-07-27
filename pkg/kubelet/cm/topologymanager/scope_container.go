@@ -17,7 +17,9 @@ limitations under the License.
 package topologymanager
 
 import (
-	"k8s.io/api/core/v1"
+	"fmt"
+
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/cm/admission"
 	"k8s.io/kubernetes/pkg/kubelet/cm/containermap"
@@ -36,10 +38,11 @@ var _ Scope = &containerScope{}
 func NewContainerScope(policy Policy) Scope {
 	return &containerScope{
 		scope{
-			name:             containerTopologyScope,
-			podTopologyHints: podTopologyHints{},
-			policy:           policy,
-			podMap:           containermap.NewContainerMap(),
+			name:              containerTopologyScope,
+			podTopologyHints:  podTopologyHints{},
+			policy:            policy,
+			podMap:            containermap.NewContainerMap(),
+			podFarMemAffinity: map[string]map[string]TopologyHint{},
 		},
 	}
 }
@@ -57,9 +60,37 @@ func (s *containerScope) Admit(pod *v1.Pod) lifecycle.PodAdmitResult {
 			return admission.GetPodAdmitResult(&TopologyAffinityError{})
 		}
 		klog.InfoS("Topology Affinity", "bestHint", bestHint, "pod", klog.KObj(pod), "containerName", container.Name)
+
+		farMemMgrHints := s.farMemMgr.GetTopologyHints(pod, &container)
+		if len(farMemMgrHints) > 0 {
+			fmh := getFarMemHint(farMemMgrHints)
+
+			// If no hint that satisfies the container's far memory request could be found the pod
+			// can't be admitted (we hackishly use the Preferred field to encode that).
+			if !fmh.Preferred {
+				if IsAlignmentGuaranteed(s.policy) {
+					metrics.ContainerAlignedComputeResourcesFailure.WithLabelValues(metrics.AlignScopeContainer, metrics.AlignedNUMANode).Inc()
+				}
+				metrics.TopologyManagerAdmissionErrorsTotal.Inc()
+				klog.InfoS("far memory request could not be satisfied",
+					"pod", klog.KObj(pod),
+					"container", container.Name)
+				return admission.GetPodAdmitResult(&TopologyAffinityError{})
+			}
+
+			s.setFarMemTopoHint(string(pod.UID), container.Name, fmh)
+		}
+
 		s.setTopologyHints(string(pod.UID), container.Name, bestHint)
 
 		err := s.allocateAlignedResources(pod, &container)
+		if err != nil {
+			metrics.TopologyManagerAdmissionErrorsTotal.Inc()
+			return admission.GetPodAdmitResult(err)
+		}
+
+		// Now, allocate far memory.
+		err = s.farMemMgr.Allocate(pod, &container)
 		if err != nil {
 			metrics.TopologyManagerAdmissionErrorsTotal.Inc()
 			return admission.GetPodAdmitResult(err)
@@ -71,6 +102,24 @@ func (s *containerScope) Admit(pod *v1.Pod) lifecycle.PodAdmitResult {
 		}
 	}
 	return admission.GetPodAdmitResult(nil)
+}
+
+func getFarMemHint(farMemMgrHints map[string][]TopologyHint) TopologyHint {
+	if len(farMemMgrHints) != 1 {
+		panic(fmt.Sprintf("far memory manager returned hints for resource types other than %s", string(v1.ResourceMemory)))
+	}
+
+	farMemHints, ok := farMemMgrHints[string(v1.ResourceMemory)]
+
+	if !ok || len(farMemHints) == 0 {
+		panic(fmt.Sprintf("far memory manager returned no hint for resource type %s", string(v1.ResourceMemory)))
+	}
+
+	if len(farMemHints) > 1 {
+		panic(fmt.Sprintf("far memory manager returned more than one hint for resource type %s", string(v1.ResourceMemory)))
+	}
+
+	return farMemHints[0]
 }
 
 func (s *containerScope) accumulateProvidersHints(pod *v1.Pod, container *v1.Container) []map[string][]TopologyHint {

@@ -39,8 +39,8 @@ type bestEffortPolicy struct {
 
 var _ Policy = &bestEffortPolicy{}
 
-func NewPolicyBestEffort(machineInfo *cadvisorapi.MachineInfo, reserved systemReservedMemory, affinity topologymanager.Store) (Policy, error) {
-	p, err := NewPolicyStatic(machineInfo, reserved, affinity)
+func NewPolicyBestEffort(mgrName string, machineInfo *cadvisorapi.MachineInfo, reserved systemReservedMemory, affinity topologymanager.Store) (Policy, error) {
+	p, err := NewPolicyStatic(mgrName, machineInfo, reserved, affinity)
 
 	if err != nil {
 		return nil, err

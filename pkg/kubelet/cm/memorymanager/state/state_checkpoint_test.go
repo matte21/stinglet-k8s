@@ -58,9 +58,9 @@ func TestCheckpointStateRestore(t *testing.T) {
 			"Restore valid checkpoint",
 			`{
 				"policyName":"static",
-				"machineState":{"0":{"numberOfAssignments":0,"memoryMap":{"memory":{"total":2048,"systemReserved":512,"allocatable":1536,"reserved":512,"free":1024}},"cells":[]}},
+				"machineState":{"0":{"numberOfAssignments":0,"memoryMap":{"memory":{"total":2048,"systemReserved":512,"allocatable":1536,"reserved":512,"free":1024}},"cells":[],"isZNUMA":false}},
 				"entries":{"pod":{"container1":[{"numaAffinity":[0],"type":"memory","size":512}]}},
-				"checksum": 4215593881
+				"checksum": 1137025684
 			}`,
 			"",
 			&stateMemory{
@@ -131,7 +131,7 @@ func TestCheckpointStateRestore(t *testing.T) {
 				assert.NoError(t, cpm.CreateCheckpoint(testingCheckpoint, checkpoint), "could not create testing checkpoint")
 			}
 
-			restoredState, err := NewCheckpointState(testingDir, testingCheckpoint, "static")
+			restoredState, err := NewCheckpointState(testingDir, testingCheckpoint, "static", "memory_manager")
 			if strings.TrimSpace(tc.expectedError) != "" {
 				assert.Error(t, err)
 				assert.ErrorContains(t, err, "could not restore state from checkpoint: "+tc.expectedError)
@@ -184,7 +184,7 @@ func TestCheckpointStateStore(t *testing.T) {
 
 	assert.NoError(t, cpm.RemoveCheckpoint(testingCheckpoint), "could not remove testing checkpoint")
 
-	cs1, err := NewCheckpointState(testingDir, testingCheckpoint, "static")
+	cs1, err := NewCheckpointState(testingDir, testingCheckpoint, "static", "memory_manager")
 	assert.NoError(t, err, "could not create testing checkpointState instance")
 
 	// set values of cs1 instance so they are stored in checkpoint and can be read by cs2
@@ -192,7 +192,7 @@ func TestCheckpointStateStore(t *testing.T) {
 	cs1.SetMemoryAssignments(expectedState.assignments)
 
 	// restore checkpoint with previously stored values
-	cs2, err := NewCheckpointState(testingDir, testingCheckpoint, "static")
+	cs2, err := NewCheckpointState(testingDir, testingCheckpoint, "static", "memory_manager")
 	assert.NoError(t, err, "could not create testing checkpointState instance")
 
 	assertStateEqual(t, cs2, expectedState)
@@ -306,7 +306,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 			// ensure there is no previous checkpoint
 			assert.NoError(t, cpm.RemoveCheckpoint(testingCheckpoint), "could not remove testing checkpoint")
 
-			state, err := NewCheckpointState(testingDir, testingCheckpoint, "static")
+			state, err := NewCheckpointState(testingDir, testingCheckpoint, "static", "memory_manager")
 			assert.NoError(t, err, "could not create testing checkpoint manager")
 
 			state.SetMachineState(tc.machineState)
@@ -369,7 +369,7 @@ func TestCheckpointStateClear(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-			state, err := NewCheckpointState(testingDir, testingCheckpoint, "static")
+			state, err := NewCheckpointState(testingDir, testingCheckpoint, "static", "memory_manager")
 			assert.NoError(t, err, "could not create testing checkpoint manager")
 
 			state.SetMachineState(tc.machineState)

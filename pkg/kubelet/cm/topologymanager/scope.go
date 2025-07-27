@@ -19,11 +19,12 @@ package topologymanager
 import (
 	"sync"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/cm/admission"
 	"k8s.io/kubernetes/pkg/kubelet/cm/containermap"
 	"k8s.io/kubernetes/pkg/kubelet/lifecycle"
+	"k8s.io/kubernetes/pkg/kubelet/metrics"
 )
 
 const (
@@ -51,6 +52,8 @@ type Scope interface {
 	RemoveContainer(containerID string) error
 	// Store is the interface for storing pod topology hints
 	Store
+
+	AddFarMemMgr(fmm HintProvider)
 }
 
 type scope struct {
@@ -65,6 +68,12 @@ type scope struct {
 	policy Policy
 	// Mapping of (PodUid, ContainerName) to ContainerID for Adding/Removing Pods from PodTopologyHints mapping
 	podMap containermap.ContainerMap
+
+	farMemMgr HintProvider
+
+	// outer key: pod UID
+	// inner key: container name
+	podFarMemAffinity map[string]map[string]TopologyHint
 }
 
 func (s *scope) Name() string {
@@ -87,8 +96,24 @@ func (s *scope) setTopologyHints(podUID string, containerName string, th Topolog
 	s.podTopologyHints[podUID][containerName] = th
 }
 
+func (s *scope) setFarMemTopoHint(podUID, containerName string, th TopologyHint) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.podFarMemAffinity[podUID] == nil {
+		s.podFarMemAffinity[podUID] = make(map[string]TopologyHint)
+	}
+	s.podFarMemAffinity[podUID][containerName] = th
+}
+
 func (s *scope) GetAffinity(podUID string, containerName string) TopologyHint {
 	return s.getTopologyHints(podUID, containerName)
+}
+
+func (s *scope) GetFarMemAffinity(podUID string, containerName string) TopologyHint {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return s.podFarMemAffinity[podUID][containerName]
 }
 
 func (s *scope) GetPolicy() Policy {
@@ -97,6 +122,10 @@ func (s *scope) GetPolicy() Policy {
 
 func (s *scope) AddHintProvider(h HintProvider) {
 	s.hintProviders = append(s.hintProviders, h)
+}
+
+func (s *scope) AddFarMemMgr(fmm HintProvider) {
+	s.farMemMgr = fmm
 }
 
 // It would be better to implement this function in topologymanager instead of scope
@@ -141,6 +170,15 @@ func (s *scope) admitPolicyNone(pod *v1.Pod) lifecycle.PodAdmitResult {
 		if err != nil {
 			return admission.GetPodAdmitResult(err)
 		}
+
+		// TODO: add tests.
+		// Now, allocate far memory.
+		err = s.farMemMgr.Allocate(pod, &container)
+		if err != nil {
+			metrics.TopologyManagerAdmissionErrorsTotal.Inc()
+			return admission.GetPodAdmitResult(err)
+		}
+
 	}
 	return admission.GetPodAdmitResult(nil)
 }
@@ -154,5 +192,6 @@ func (s *scope) allocateAlignedResources(pod *v1.Pod, container *v1.Container) e
 			return err
 		}
 	}
+
 	return nil
 }

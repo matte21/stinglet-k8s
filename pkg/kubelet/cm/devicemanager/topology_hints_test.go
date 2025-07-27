@@ -39,6 +39,10 @@ func (m *mockAffinityStore) GetAffinity(podUID string, containerName string) top
 	return m.hint
 }
 
+func (*mockAffinityStore) GetFarMemAffinity(podUID string, containerName string) topologymanager.TopologyHint {
+	panic("UNIMPLEMENTED")
+}
+
 func (m *mockAffinityStore) GetPolicy() topologymanager.Policy {
 	return nil
 }

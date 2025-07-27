@@ -17,7 +17,7 @@ limitations under the License.
 package topologymanager
 
 import (
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/cm/admission"
 	"k8s.io/kubernetes/pkg/kubelet/lifecycle"
@@ -26,6 +26,8 @@ import (
 type fakeManager struct {
 	hint   *TopologyHint
 	policy Policy
+
+	farMemHint *TopologyHint
 }
 
 // NewFakeManager returns an instance of FakeManager
@@ -51,6 +53,20 @@ func NewFakeManagerWithPolicy(policy Policy) Manager {
 	}
 }
 
+// NewFakeManagerWithFarMemHint returns an instance of fake topology manager with specified far
+// memory topology hints
+func NewFakeManagerWithFarMemHint(farMemHint *TopologyHint) Manager {
+	klog.InfoS("NewFakeManagerWithFarMemHint")
+	return &fakeManager{
+		farMemHint: farMemHint,
+		policy:     NewNonePolicy(),
+	}
+}
+
+func (m *fakeManager) AddFarMemMgr(fmm HintProvider) {
+	// nop.
+}
+
 func (m *fakeManager) GetAffinity(podUID string, containerName string) TopologyHint {
 	klog.InfoS("GetAffinity", "podUID", podUID, "containerName", containerName)
 	if m.hint == nil {
@@ -58,6 +74,15 @@ func (m *fakeManager) GetAffinity(podUID string, containerName string) TopologyH
 	}
 
 	return *m.hint
+}
+
+func (m *fakeManager) GetFarMemAffinity(podUID string, containerName string) TopologyHint {
+	klog.InfoS("GetFarMemAffinity", "podUID", podUID, "containerName", containerName)
+	if m.farMemHint == nil {
+		return TopologyHint{}
+	}
+
+	return *m.farMemHint
 }
 
 func (m *fakeManager) GetPolicy() Policy {

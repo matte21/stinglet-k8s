@@ -66,6 +66,8 @@ type Manager interface {
 	RemoveContainer(containerID string) error
 	// Store is the interface for storing pod topology hints
 	Store
+
+	AddFarMemMgr(fmm HintProvider)
 }
 
 type manager struct {
@@ -98,6 +100,7 @@ type HintProvider interface {
 type Store interface {
 	GetAffinity(podUID string, containerName string) TopologyHint
 	GetPolicy() Policy
+	GetFarMemAffinity(podUID string, containerName string) TopologyHint
 }
 
 // TopologyHint is a struct containing the NUMANodeAffinity for a Container
@@ -209,8 +212,16 @@ func (m *manager) GetPolicy() Policy {
 	return m.scope.GetPolicy()
 }
 
+func (m *manager) GetFarMemAffinity(podUID string, containerName string) TopologyHint {
+	return m.scope.GetFarMemAffinity(podUID, containerName)
+}
+
 func (m *manager) AddHintProvider(h HintProvider) {
 	m.scope.AddHintProvider(h)
+}
+
+func (m *manager) AddFarMemMgr(fmm HintProvider) {
+	m.scope.AddFarMemMgr(fmm)
 }
 
 func (m *manager) AddContainer(pod *v1.Pod, container *v1.Container, containerID string) {

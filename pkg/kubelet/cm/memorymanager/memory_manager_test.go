@@ -79,7 +79,7 @@ func returnPolicyByName(testCase testMemoryManager) Policy {
 			err: fmt.Errorf("fake reg error"),
 		}
 	case policyTypeStatic:
-		policy, _ := NewPolicyStatic(&testCase.machineInfo, testCase.reserved, topologymanager.NewFakeManager())
+		policy, _ := NewPolicyStatic(NormalMemMgrName, &testCase.machineInfo, testCase.reserved, topologymanager.NewFakeManager())
 		return policy
 	case policyTypeNone:
 		return NewPolicyNone()
@@ -1996,7 +1996,7 @@ func TestNewManager(t *testing.T) {
 			}
 			defer os.RemoveAll(stateFileDirectory)
 
-			mgr, err := NewManager(string(testCase.policyName), &testCase.machineInfo, testCase.nodeAllocatableReservation, testCase.systemReservedMemory, stateFileDirectory, testCase.affinity)
+			mgr, err := NewManager(NormalMemMgrName, string(testCase.policyName), &testCase.machineInfo, testCase.nodeAllocatableReservation, testCase.systemReservedMemory, stateFileDirectory, testCase.affinity)
 
 			if !reflect.DeepEqual(err, testCase.expectedError) {
 				t.Errorf("Could not create the Memory Manager. Expected error: '%v', but got: '%v'",

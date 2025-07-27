@@ -19,9 +19,12 @@ limitations under the License.
 package qos
 
 import (
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/features"
 )
@@ -145,6 +148,34 @@ func ComputePodQOS(pod *core.Pod) core.PodQOSClass {
 				}
 			}
 
+			// process far memory.
+			farMemLimit, err := getFarMemoryLimit(pod, &container)
+			if err != nil {
+				// When it returns an error, getFarMemoryLimit also returns a 0 limit.
+				klog.ErrorS(err, "failed to get far memory limit, continuing execution assuming it was 0")
+			}
+			if farMemLimit.Cmp(zeroQuantity) == 1 {
+				qosLimitsFound.Insert(string(core.ResourceMemory))
+
+				delta := farMemLimit.DeepCopy()
+				if _, exists := limits[core.ResourceMemory]; !exists {
+					limits[core.ResourceMemory] = delta
+				} else {
+					delta.Add(limits[core.ResourceMemory])
+					limits[core.ResourceMemory] = delta
+				}
+
+				// Far memory has a single field that represents both requests and limits, which for
+				// now are constrained to be constants.
+				delta = farMemLimit.DeepCopy()
+				if _, exists := requests[core.ResourceMemory]; !exists {
+					requests[core.ResourceMemory] = delta
+				} else {
+					delta.Add(requests[core.ResourceMemory])
+					requests[core.ResourceMemory] = delta
+				}
+			}
+
 			if !qosLimitsFound.HasAll(string(core.ResourceMemory), string(core.ResourceCPU)) {
 				isGuaranteed = false
 			}
@@ -168,4 +199,29 @@ func ComputePodQOS(pod *core.Pod) core.PodQOSClass {
 		return core.PodQOSGuaranteed
 	}
 	return core.PodQOSBurstable
+}
+
+// TODO: dedup this function with the similar one in memory manager pkg.
+// If getFarMemoryLimit returns an error, it also returns a 0 quantity, because the caller is a
+// function that can't return errors. So the caller logs the error, but then continues execution
+// normally => having a 0 quantity makes its code simpler.
+func getFarMemoryLimit(pod *core.Pod, container *core.Container) (*resource.Quantity, error) {
+	farMemAnnotationKey := farMemAnnotationKey(container.Name)
+
+	farMemAnnotationVal, ok := pod.Annotations[farMemAnnotationKey]
+	if !ok {
+		return resource.NewQuantity(0, resource.DecimalSI), nil
+	}
+
+	farMemQty, err := resource.ParseQuantity(farMemAnnotationVal)
+	if err != nil {
+		return resource.NewQuantity(0, resource.DecimalSI), fmt.Errorf("failed to parse far memory annotation %s: %s", farMemAnnotationVal, err)
+	}
+
+	return &farMemQty, nil
+}
+
+// TODO: dedup this function with the identical one in memory manager pkg.
+func farMemAnnotationKey(containerName string) string {
+	return containerName + "/far-mem"
 }

@@ -19,6 +19,7 @@ package memorymanager
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 
@@ -54,12 +55,14 @@ type staticPolicy struct {
 	// Note that the restartable init container memory is not included here,
 	// because it is not reusable.
 	initContainersReusableMemory reusableMemory
+
+	mgrName string
 }
 
 var _ Policy = &staticPolicy{}
 
 // NewPolicyStatic returns new static policy instance
-func NewPolicyStatic(machineInfo *cadvisorapi.MachineInfo, reserved systemReservedMemory, affinity topologymanager.Store) (Policy, error) {
+func NewPolicyStatic(mgrName string, machineInfo *cadvisorapi.MachineInfo, reserved systemReservedMemory, affinity topologymanager.Store) (Policy, error) {
 	var totalSystemReserved uint64
 	for _, node := range reserved {
 		if _, ok := node[v1.ResourceMemory]; !ok {
@@ -70,7 +73,7 @@ func NewPolicyStatic(machineInfo *cadvisorapi.MachineInfo, reserved systemReserv
 
 	// check if we have some reserved memory for the system
 	if totalSystemReserved <= 0 {
-		return nil, fmt.Errorf("[memorymanager] you should specify the system reserved memory")
+		return nil, fmt.Errorf("[%s] you should specify the system reserved memory", strings.ReplaceAll(mgrName, "_", ""))
 	}
 
 	return &staticPolicy{
@@ -78,6 +81,7 @@ func NewPolicyStatic(machineInfo *cadvisorapi.MachineInfo, reserved systemReserv
 		systemReserved:               reserved,
 		affinity:                     affinity,
 		initContainersReusableMemory: reusableMemory{},
+		mgrName:                      mgrName,
 	}, nil
 }
 
@@ -119,10 +123,15 @@ func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Contai
 	}
 
 	// Call Topology Manager to get the aligned affinity across all hint providers.
-	hint := p.affinity.GetAffinity(podUID, container.Name)
+	var hint topologymanager.TopologyHint
+	if p.mgrName == NormalMemMgrName {
+		hint = p.affinity.GetAffinity(podUID, container.Name)
+	} else {
+		hint = p.affinity.GetFarMemAffinity(podUID, container.Name)
+	}
 	klog.InfoS("Got topology affinity", "pod", klog.KObj(pod), "podUID", pod.UID, "containerName", container.Name, "hint", hint)
 
-	requestedResources, err := getRequestedResources(pod, container)
+	requestedResources, err := getRequestedResources(p.mgrName, pod, container)
 	if err != nil {
 		return err
 	}
@@ -138,7 +147,7 @@ func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Contai
 		}
 
 		if !defaultHint.Preferred && bestHint.Preferred {
-			return fmt.Errorf("[memorymanager] failed to find the default preferred hint")
+			return fmt.Errorf("[%s] failed to find the default preferred hint", strings.ReplaceAll(p.mgrName, "_", ""))
 		}
 		bestHint = defaultHint
 	}
@@ -152,7 +161,7 @@ func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Contai
 		}
 
 		if !extendedHint.Preferred && bestHint.Preferred {
-			return fmt.Errorf("[memorymanager] failed to find the extended preferred hint")
+			return fmt.Errorf("[%s] failed to find the extended preferred hint", strings.ReplaceAll(p.mgrName, "_", ""))
 		}
 		bestHint = extendedHint
 	}
@@ -161,7 +170,7 @@ func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Contai
 	// NUMA node cannot have both single and cross NUMA node allocations
 	// https://kubernetes.io/blog/2021/08/11/kubernetes-1-22-feature-memory-manager-moves-to-beta/#single-vs-cross-numa-node-allocation
 	if isAffinityViolatingNUMAAllocations(machineState, bestHint.NUMANodeAffinity) {
-		return fmt.Errorf("[memorymanager] preferred hint violates NUMA node allocation")
+		return fmt.Errorf("[%s] preferred hint violates NUMA node allocation", strings.ReplaceAll(p.mgrName, "_", ""))
 	}
 
 	var containerBlocks []state.Block
@@ -337,13 +346,13 @@ func regenerateHints(pod *v1.Pod, ctn *v1.Container, ctnBlocks []state.Block, re
 	return hints
 }
 
-func getPodRequestedResources(pod *v1.Pod) (map[v1.ResourceName]uint64, error) {
+func getPodRequestedResources(mgrName string, pod *v1.Pod) (map[v1.ResourceName]uint64, error) {
 	// Maximun resources requested by init containers at any given time.
 	reqRsrcsByInitCtrs := make(map[v1.ResourceName]uint64)
 	// Total resources requested by restartable init containers.
 	reqRsrcsByRestartableInitCtrs := make(map[v1.ResourceName]uint64)
 	for _, ctr := range pod.Spec.InitContainers {
-		reqRsrcs, err := getRequestedResources(pod, &ctr)
+		reqRsrcs, err := getRequestedResources(mgrName, pod, &ctr)
 
 		if err != nil {
 			return nil, err
@@ -365,7 +374,7 @@ func getPodRequestedResources(pod *v1.Pod) (map[v1.ResourceName]uint64, error) {
 
 	reqRsrcsByAppCtrs := make(map[v1.ResourceName]uint64)
 	for _, ctr := range pod.Spec.Containers {
-		reqRsrcs, err := getRequestedResources(pod, &ctr)
+		reqRsrcs, err := getRequestedResources(mgrName, pod, &ctr)
 
 		if err != nil {
 			return nil, err
@@ -397,7 +406,7 @@ func (p *staticPolicy) GetPodTopologyHints(s state.State, pod *v1.Pod) map[strin
 		return nil
 	}
 
-	reqRsrcs, err := getPodRequestedResources(pod)
+	reqRsrcs, err := getPodRequestedResources(p.mgrName, pod)
 	if err != nil {
 		klog.ErrorS(err, "Failed to get pod requested resources", "pod", klog.KObj(pod), "podUID", pod.UID)
 		return nil
@@ -425,7 +434,7 @@ func (p *staticPolicy) GetTopologyHints(s state.State, pod *v1.Pod, container *v
 		return nil
 	}
 
-	requestedResources, err := getRequestedResources(pod, container)
+	requestedResources, err := getRequestedResources(p.mgrName, pod, container)
 	if err != nil {
 		klog.ErrorS(err, "Failed to get container requested resources", "pod", klog.KObj(pod), "podUID", pod.UID, "containerName", container.Name)
 		return nil
@@ -439,10 +448,30 @@ func (p *staticPolicy) GetTopologyHints(s state.State, pod *v1.Pod, container *v
 		return regenerateHints(pod, container, containerBlocks, requestedResources)
 	}
 
-	return p.calculateHints(s.GetMachineState(), pod, requestedResources)
+	if p.mgrName == NormalMemMgrName {
+		return p.calculateHints(s.GetMachineState(), pod, requestedResources)
+	}
+
+	return p.calculateFarMemHints(s.GetMachineState(), pod, requestedResources[v1.ResourceMemory])
 }
 
-func getRequestedResources(pod *v1.Pod, container *v1.Container) (map[v1.ResourceName]uint64, error) {
+func getRequestedResources(mgrName string, pod *v1.Pod, container *v1.Container) (map[v1.ResourceName]uint64, error) {
+	if mgrName == NormalMemMgrName {
+		// If we're here, this memory manager must generate hints to satisfy the requests for
+		// "normal" memory.
+		return getLocalMemRequests(mgrName, pod, container)
+	}
+
+	// If we're here, this memory manager must generate hints to satisfy the requests for
+	// far memory.
+	return getFarMemRequest(pod, container)
+}
+
+func farMemAnnotationKey(containerName string) string {
+	return containerName + "/far-mem"
+}
+
+func getLocalMemRequests(mgrName string, pod *v1.Pod, container *v1.Container) (map[v1.ResourceName]uint64, error) {
 	requestedResources := map[v1.ResourceName]uint64{}
 	resources := container.Resources.Requests
 	// In-place pod resize feature makes Container.Resources field mutable for CPU & memory.
@@ -466,17 +495,46 @@ func getRequestedResources(pod *v1.Pod, container *v1.Container) (map[v1.Resourc
 		}
 		requestedSize, succeed := quantity.AsInt64()
 		if !succeed {
-			return nil, fmt.Errorf("[memorymanager] failed to represent quantity as int64")
+			return nil, fmt.Errorf("[%s] failed to represent quantity as int64", strings.ReplaceAll(mgrName, "_", ""))
 		}
 		requestedResources[resourceName] = uint64(requestedSize)
 	}
 	return requestedResources, nil
 }
 
+// TODO: implement in-place vertical scaling.
+func getFarMemRequest(pod *v1.Pod, container *v1.Container) (map[v1.ResourceName]uint64, error) {
+	farMemAnnotationKey := farMemAnnotationKey(container.Name)
+
+	farMemAnnotationVal, ok := pod.Annotations[farMemAnnotationKey]
+	if !ok {
+		return map[v1.ResourceName]uint64{
+			v1.ResourceMemory: 0,
+		}, nil
+	}
+
+	farMemQty, err := resource.ParseQuantity(farMemAnnotationVal)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse far memory annotation %s: %s", farMemAnnotationVal, err)
+	}
+
+	farMemRequest, ok := farMemQty.AsInt64()
+	if !ok {
+		return nil, fmt.Errorf("failed to represent as int64 far memory quantity parsed from annotation %s", farMemAnnotationKey)
+	}
+
+	return map[v1.ResourceName]uint64{
+		v1.ResourceMemory: uint64(farMemRequest),
+	}, nil
+}
+
 func (p *staticPolicy) calculateHints(machineState state.NUMANodeMap, pod *v1.Pod, requestedResources map[v1.ResourceName]uint64) map[string][]topologymanager.TopologyHint {
 	var numaNodes []int
 	for n := range machineState {
-		numaNodes = append(numaNodes, n)
+		// This function calculates hints only for normal, local memory, so we skip zNUMAs.
+		if !machineState[n].IsZNUMA {
+			numaNodes = append(numaNodes, n)
+		}
 	}
 	sort.Ints(numaNodes)
 
@@ -568,6 +626,165 @@ func (p *staticPolicy) calculateHints(machineState state.NUMANodeMap, pod *v1.Po
 	return hints
 }
 
+// calculateFarMemHints returns a single topology manager hint that can satisfy a request of
+// `requestedFarMem` bytes of far memory. The hint spans one or more zNUMAs, and spans only zNUMAs
+// (the only ones holding far memory).
+// If such a hint can be found, the returned map has only key v1.ResourceMemory and the matching item
+// is a slice with a single hint whose affinity encodes the zNUMAs in the hint, and with `preferred`
+// equal to true. If such a hint cannot be found, then the affinity has no zNUMA set (i.e. has value
+// 0) and `preferred` is false. If the request is 0 or a bug occurs, the affinity is nil and
+// `preferred` is false.
+// Only v1.ResourceMemory is supported, other resource types such as huge pages aren't. Even if a
+// single hint is returned, the return argument has the "map of slices" signature to comply with the
+// topology manager hint provider interface. Unlike other hint providers, this function returns a
+// single hint, as opposed to all hints that can satisfy the request, because the policy that this
+// function is part of doesn't align far memory hints and other types of hints (e.g. local memory
+// and cpus), so there's no point in having more hints (which is useful when the topology manager
+// has to find a single hint that is as shared as possible by each provider, and providers don't
+// know which hints other providers will generate).
+// Currently, the search proceeds from shortest to longest hints, and ends as soon as the first
+// feasible hint is found: if a hint of length X is feasible, remaining hints of length X and hints
+// of length Y > X are not considered. This makes the search faster than that of other hint
+// providers. However, it also makes the results potentially less optimal if the goal is to pack as
+// densely as possible. e.g. given two zNUMAs N1 and N2 where N1 is empty and has a lot more memory
+// than requested while N2 has exactly as much memory as requested, if the hint with N1 is evaluated
+// before the one with N2, the allocation will go to N1 rather than N2. In the future we might
+// change the algorithm to improve this.
+// Why would we want to pack as densely as possible? First of all, what do we mean by that? Two
+// interpretations are possible: (1) honor the constraint of using as little NUMAs as possible, and
+// (2) don't even honor that, which could be interpreted as "leave as many empty NUMAs as possible".
+// Let's start with (1). Why is that advantageous? It probably maximizes the amount of free memory
+// that can be unplugged (system-level/cluster admin perspective). It reduces the likelihood of
+// failures experienced by the app, and makes its memory and performance management easier (e.g.
+// what if the two NUMAs have different performance)? It leaves more room for future, larger apps
+// to use a single NUMA.
+// What about (2)? This is more controversial. What should we choose between an empty zNUMA
+// that can satisfy the allocation alone vs two partially allocated zNUMAs which would both become
+// full? The cluster admin perspective would say to choose the two partially allocated ones. The app
+// perspective favors choosing the empty zNUMA.
+// Note: we should probably track explicitly the amount of free locked vs pluggable memory and use
+// that as a factor in our algorithm.
+// Also, the hint search is subject to the standard memory manager invariant that once a zNUMA is
+// part of an assignment A, all future assignments that touch that zNUMA must span the exact set of
+// zNUMAs that A spans.
+// TODO: add support for init containers/handling of pod reusable memory.
+func (p *staticPolicy) calculateFarMemHints(machineState state.NUMANodeMap, pod *v1.Pod, requestedFarMem uint64) map[string][]topologymanager.TopologyHint {
+	if requestedFarMem == 0 {
+		// This hint symbolizes that the pod/container needs no far memory so no zNUMAs should
+		// be allocated.
+		return farMemoryHint(bitmask.NewEmptyBitMask(), true)
+	}
+
+	var zNUMAs []int
+	for n := range machineState {
+		// This function calculates hints only for zNUMAs, so we skip any other NUMA.
+		if machineState[n].IsZNUMA {
+			zNUMAs = append(zNUMAs, n)
+		}
+	}
+	sort.Ints(zNUMAs)
+
+	var bestCombo []int
+	for k := 1; k <= len(zNUMAs); k++ {
+		iterateCombinations(zNUMAs, k, func(combo []int) LoopControl {
+			var freeMem uint64
+			for _, n := range combo {
+				ms := machineState[n]
+
+				// Once a zNUMA is part of an assignment A, all future assignments that touch that
+				// zNUMA must span the exact set of zNUMAs that A spans (until all allocations
+				// spanning that set are deleted, then the set is disbanded and the zNUMAs in it
+				// are loose again). So we can use `combo` only if it doesn't violate the
+				// aforementioned invariant. `.Cells` is the field storing the set of NUMAs in the
+				// assignments that n is part of, if it's part of any assignment.
+				if ms.NumberOfAssignments > 0 && !areGroupsEqual(ms.Cells, combo) {
+					return Continue
+				}
+
+				// Iteratively record how much free memory the combo has.
+				if nMemStats, ok := ms.MemoryMap[v1.ResourceMemory]; ok {
+					freeMem += nMemStats.Free
+				}
+			}
+
+			// Check that the combo collectively has enough free memory to satisfy the request.
+			if freeMem >= requestedFarMem {
+				bestCombo = combo
+				return Break
+			}
+
+			return Continue
+		})
+
+		if bestCombo != nil {
+			break
+		}
+	}
+
+	aff, err := bitmask.NewBitMask(bestCombo...)
+	if err != nil {
+		klog.ErrorS(err, "farmemorymanager failed to parse combo into bitmask", "combo", bestCombo)
+		return farMemoryHint(nil, false)
+	}
+
+	// We set the preferred argument to `bestCombo != nil` instead of true to handle the case where
+	// no combo that satisfies the request could be found. In that case, we want to set `Preferred`
+	// to false to signal to the client that no affinity could be found.
+	return farMemoryHint(aff, bestCombo != nil)
+}
+
+func farMemoryHint(affinity bitmask.BitMask, preferred bool) map[string][]topologymanager.TopologyHint {
+	return map[string][]topologymanager.TopologyHint{
+		string(v1.ResourceMemory): []topologymanager.TopologyHint{
+			{NUMANodeAffinity: affinity, Preferred: preferred},
+		},
+	}
+}
+
+// TODO (matte21): the following type is a duplicate of the one in
+// k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/cpu_assignment.go.
+// We should refactor things so that they are shared.
+// LoopControl controls the behavior of the cpu accumulator loop logic
+type LoopControl int
+
+// TODO (matte21): the following consts are duplicates of those in
+// k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/cpu_assignment.go.
+// We should refactor things so that they are shared.
+// Possible loop control outcomes
+const (
+	Continue LoopControl = iota
+	Break
+)
+
+// TODO (matte21): the following function is a duplicate of the one in
+// k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/cpu_assignment.go.
+// We should refactor things so that they are shared.
+// iterateCombinations walks through all n-choose-k subsets of size k in n and
+// calls function 'f()' on each subset. For example, if n={0,1,2}, and k=2,
+// then f() will be called on the subsets {0,1}, {0,2}. and {1,2}. If f() ever
+// returns 'Break', we break early and exit the loop.
+func iterateCombinations(n []int, k int, f func([]int) LoopControl) {
+	if k < 1 {
+		return
+	}
+
+	var helper func(n []int, k int, start int, accum []int, f func([]int) LoopControl) LoopControl
+	helper = func(n []int, k int, start int, accum []int, f func([]int) LoopControl) LoopControl {
+		if k == 0 {
+			return f(accum)
+		}
+		for i := start; i <= len(n)-k; i++ {
+			control := helper(n, k-1, i+1, append(accum, n[i]), f)
+			if control == Break {
+				return Break
+			}
+		}
+		return Continue
+	}
+
+	helper(n, k, 0, []int{}, f)
+}
+
 func (p *staticPolicy) isHintPreferred(maskBits []int, minAffinitySize int) bool {
 	return len(maskBits) == minAffinitySize
 }
@@ -595,7 +812,7 @@ func (p *staticPolicy) validateState(s state.State) error {
 	if len(machineState) == 0 {
 		// Machine state cannot be empty when assignments exist
 		if len(memoryAssignments) != 0 {
-			return fmt.Errorf("[memorymanager] machine state can not be empty when it has memory assignments")
+			return fmt.Errorf("[%s] machine state can not be empty when it has memory assignments", strings.ReplaceAll(p.mgrName, "_", ""))
 		}
 
 		defaultMachineState := p.getDefaultMachineState()
@@ -613,7 +830,7 @@ func (p *staticPolicy) validateState(s state.State) error {
 				for _, nodeID := range b.NUMAAffinity {
 					nodeState, ok := expectedMachineState[nodeID]
 					if !ok {
-						return fmt.Errorf("[memorymanager] (pod: %s, container: %s) the memory assignment uses the NUMA that does not exist", pod, containerName)
+						return fmt.Errorf("[%s] (pod: %s, container: %s) the memory assignment uses the NUMA that does not exist", strings.ReplaceAll(p.mgrName, "_", ""), pod, containerName)
 					}
 
 					nodeState.NumberOfAssignments++
@@ -621,7 +838,7 @@ func (p *staticPolicy) validateState(s state.State) error {
 
 					memoryState, ok := nodeState.MemoryMap[b.Type]
 					if !ok {
-						return fmt.Errorf("[memorymanager] (pod: %s, container: %s) the memory assignment uses memory resource that does not exist", pod, containerName)
+						return fmt.Errorf("[%s] (pod: %s, container: %s) the memory assignment uses memory resource that does not exist", strings.ReplaceAll(p.mgrName, "_", ""), pod, containerName)
 					}
 
 					if requestedSize == 0 {
@@ -655,7 +872,7 @@ func (p *staticPolicy) validateState(s state.State) error {
 	// - adding or removing physical memory bank from the node
 	// - change of kubelet system-reserved, kube-reserved or pre-reserved-memory-zone parameters
 	if !areMachineStatesEqual(machineState, expectedMachineState) {
-		return fmt.Errorf("[memorymanager] the expected machine state is different from the real one")
+		return fmt.Errorf("[%s] the expected machine state is different from the real one", strings.ReplaceAll(p.mgrName, "_", ""))
 	}
 
 	return nil
@@ -671,6 +888,11 @@ func areMachineStatesEqual(ms1, ms2 state.NUMANodeMap) bool {
 		nodeState2, ok := ms2[nodeID]
 		if !ok {
 			klog.InfoS("Node state didn't have node ID", "nodeID", nodeID)
+			return false
+		}
+
+		if nodeState1.IsZNUMA != nodeState2.IsZNUMA {
+			klog.InfoS("Node state had different view of whether node is zNUMA or not.", "IsZNUMA1", nodeState1.IsZNUMA, "IsZNUMA2", nodeState2.IsZNUMA)
 			return false
 		}
 
@@ -748,6 +970,7 @@ func (p *staticPolicy) getDefaultMachineState() state.NUMANodeMap {
 			NumberOfAssignments: 0,
 			MemoryMap:           map[v1.ResourceName]*state.MemoryTable{},
 			Cells:               []int{node.Id},
+			IsZNUMA:             len(node.Cores) == 0,
 		}
 
 		// fill memory table with huge pages values
@@ -800,9 +1023,14 @@ func (p *staticPolicy) getResourceSystemReserved(nodeID int, resourceName v1.Res
 }
 
 func (p *staticPolicy) getDefaultHint(machineState state.NUMANodeMap, pod *v1.Pod, requestedResources map[v1.ResourceName]uint64) (*topologymanager.TopologyHint, error) {
-	hints := p.calculateHints(machineState, pod, requestedResources)
+	var hints map[string][]topologymanager.TopologyHint
+	if p.mgrName == NormalMemMgrName {
+		hints = p.calculateHints(machineState, pod, requestedResources)
+	} else {
+		hints = p.calculateFarMemHints(machineState, pod, requestedResources[v1.ResourceMemory])
+	}
 	if len(hints) < 1 {
-		return nil, fmt.Errorf("[memorymanager] failed to get the default NUMA affinity, no NUMA nodes with enough memory is available")
+		return nil, fmt.Errorf("[%s] failed to get the default NUMA affinity, no NUMA nodes with enough memory is available", strings.ReplaceAll(p.mgrName, "_", ""))
 	}
 
 	// hints for all memory types should be the same, so we will check hints only for regular memory type
@@ -835,6 +1063,30 @@ func isAffinitySatisfyRequest(machineState state.NUMANodeMap, mask bitmask.BitMa
 // it possible that we will get the subset of hint that we provided to the topology manager, in this case we want to extend
 // it to the original one
 func (p *staticPolicy) extendTopologyManagerHint(machineState state.NUMANodeMap, pod *v1.Pod, requestedResources map[v1.ResourceName]uint64, mask bitmask.BitMask) (*topologymanager.TopologyHint, error) {
+	if p.mgrName == FarMemMgrName {
+		// This code is different than the the equivalent code for the normal memory case (which is
+		// still in this function, immediately below). In the normal case, since the hint must be
+		// as aligned as possible to the potential hints of other providers that we do not know,
+		// but that we know also produced hints comprising `mask`, we must find a hint that
+		// comprises `mask` too. But for far memory, no alignment with other providers' hints is
+		// performed, hence we can ignore mask: any hint will work.
+		hints := p.calculateFarMemHints(machineState, pod, requestedResources[v1.ResourceMemory])
+
+		if len(hints) > 1 {
+			panic(fmt.Sprintf("far memory manager returned hints for resource types other than %s", string(v1.ResourceMemory)))
+		}
+
+		if len(hints[string(v1.ResourceMemory)]) != 1 {
+			panic(fmt.Sprintf("far memory manager returned %d hints for resource type %s, exactly one expected", len(hints[string(v1.ResourceMemory)]), v1.ResourceMemory))
+		}
+
+		if !hints[string(v1.ResourceMemory)][0].Preferred {
+			return nil, fmt.Errorf("[%s] failed to find NUMA nodes to extend the current topology hint", strings.ReplaceAll(p.mgrName, "_", ""))
+		}
+
+		return &hints[string(v1.ResourceMemory)][0], nil
+	}
+
 	hints := p.calculateHints(machineState, pod, requestedResources)
 
 	var filteredHints []topologymanager.TopologyHint
@@ -848,7 +1100,7 @@ func (p *staticPolicy) extendTopologyManagerHint(machineState state.NUMANodeMap,
 	}
 
 	if len(filteredHints) < 1 {
-		return nil, fmt.Errorf("[memorymanager] failed to find NUMA nodes to extend the current topology hint")
+		return nil, fmt.Errorf("[%s] failed to find NUMA nodes to extend the current topology hint", strings.ReplaceAll(p.mgrName, "_", ""))
 	}
 
 	// try to find the preferred hint with the minimal number of NUMA nodes, relevant for the restricted policy

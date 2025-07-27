@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 
 	cadvisorapi "github.com/google/cadvisor/info/v1"
@@ -39,8 +40,14 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/status"
 )
 
-// memoryManagerStateFileName is the file name where memory manager stores its state
-const memoryManagerStateFileName = "memory_manager_state"
+const (
+	NormalMemMgrName = "memory_manager"
+	FarMemMgrName    = "far_memory_manager"
+
+	// memoryManagerStateFileNameSuffix is the suffix of the file name where memory manager stores
+	// its state. The complete file name is `.name + memoryManagerStateFileNameSuffix`
+	memoryManagerStateFileNameSuffix = "_state"
+)
 
 // ActivePodsFunc is a function that returns a list of active pods
 type ActivePodsFunc func() []*v1.Pod
@@ -96,6 +103,7 @@ type Manager interface {
 
 type manager struct {
 	sync.Mutex
+	name   string
 	policy Policy
 
 	// state allows to restore information regarding memory allocation for guaranteed pods
@@ -132,8 +140,13 @@ type manager struct {
 var _ Manager = &manager{}
 
 // NewManager returns new instance of the memory manager
-func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, reservedMemory []kubeletconfig.MemoryReservation, stateFileDirectory string, affinity topologymanager.Store) (Manager, error) {
+func NewManager(name, policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, reservedMemory []kubeletconfig.MemoryReservation, stateFileDirectory string, affinity topologymanager.Store) (Manager, error) {
 	var policy Policy
+
+	if name != NormalMemMgrName && name != FarMemMgrName {
+		return nil, fmt.Errorf("only allowed memory manager names are %s and %s, got %s",
+			NormalMemMgrName, FarMemMgrName, name)
+	}
 
 	switch policyType(policyName) {
 
@@ -150,7 +163,7 @@ func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAll
 			return nil, err
 		}
 
-		policy, err = NewPolicyStatic(machineInfo, systemReserved, affinity)
+		policy, err = NewPolicyStatic(name, machineInfo, systemReserved, affinity)
 		if err != nil {
 			return nil, err
 		}
@@ -161,7 +174,7 @@ func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAll
 			if err != nil {
 				return nil, err
 			}
-			policy, err = NewPolicyBestEffort(machineInfo, systemReserved, affinity)
+			policy, err = NewPolicyBestEffort(name, machineInfo, systemReserved, affinity)
 			if err != nil {
 				return nil, err
 			}
@@ -174,6 +187,7 @@ func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAll
 	}
 
 	manager := &manager{
+		name:               name,
 		policy:             policy,
 		stateFileDirectory: stateFileDirectory,
 	}
@@ -183,14 +197,14 @@ func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAll
 
 // Start starts the memory manager under the kubelet and calls policy start
 func (m *manager) Start(activePods ActivePodsFunc, sourcesReady config.SourcesReady, podStatusProvider status.PodStatusProvider, containerRuntime runtimeService, initialContainers containermap.ContainerMap) error {
-	klog.InfoS("Starting memorymanager", "policy", m.policy.Name())
+	klog.InfoS("Starting "+strings.ReplaceAll(m.name, "_", ""), "policy", m.policy.Name())
 	m.sourcesReady = sourcesReady
 	m.activePods = activePods
 	m.podStatusProvider = podStatusProvider
 	m.containerRuntime = containerRuntime
 	m.containerMap = initialContainers
 
-	stateImpl, err := state.NewCheckpointState(m.stateFileDirectory, memoryManagerStateFileName, m.policy.Name())
+	stateImpl, err := state.NewCheckpointState(m.stateFileDirectory, m.name+memoryManagerStateFileNameSuffix, m.policy.Name(), m.name)
 	if err != nil {
 		klog.ErrorS(err, "Could not initialize checkpoint manager, please drain node and remove policy state file")
 		return err
@@ -205,7 +219,7 @@ func (m *manager) Start(activePods ActivePodsFunc, sourcesReady config.SourcesRe
 
 	m.allocatableMemory = m.policy.GetAllocatableMemory(m.state)
 
-	klog.V(4).InfoS("memorymanager started", "policy", m.policy.Name())
+	klog.V(4).InfoS(strings.ReplaceAll(m.name, "_", "")+" started", "policy", m.policy.Name())
 	return nil
 }
 

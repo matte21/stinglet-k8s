@@ -41,6 +41,11 @@ type NUMANodeState struct {
 	// For example if some container has pinning 0,1,2, NUMA nodes 0,1,2 under the state will have
 	// this parameter equals to [0, 1, 2]
 	Cells []int `json:"cells"`
+
+	// IsZNUMA is true if this NUMA node is a CPU-less, "zNUMA" node that represents a CXL type 3
+	// device or some other kind of memory-only resource exposed to the host as a NUMA node.
+	// It's false if the NUMA is a normal NUMA node with both CPUs and memory.
+	IsZNUMA bool `json:"isZNUMA"`
 }
 
 // NUMANodeMap contains memory information for each NUMA node.
@@ -58,6 +63,7 @@ func (nm NUMANodeMap) Clone() NUMANodeMap {
 		clone[node] = &NUMANodeState{}
 		clone[node].NumberOfAssignments = s.NumberOfAssignments
 		clone[node].Cells = append([]int{}, s.Cells...)
+		clone[node].IsZNUMA = s.IsZNUMA
 
 		if s.MemoryMap == nil {
 			continue
