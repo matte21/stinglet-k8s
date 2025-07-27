@@ -20,7 +20,9 @@ import (
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 )
 
 // ContainerType signifies container type
@@ -156,7 +158,7 @@ func AggregateContainerRequests(pod *v1.Pod, opts PodResourcesOptions) v1.Resour
 	}
 
 	for _, container := range pod.Spec.Containers {
-		containerReqs := container.Resources.Requests
+		containerReqs := container.Resources.Requests.DeepCopy()
 		if opts.UseStatusResources {
 			cs, found := containerStatuses[container.Name]
 			if found && cs.Resources != nil {
@@ -168,6 +170,8 @@ func AggregateContainerRequests(pod *v1.Pod, opts PodResourcesOptions) v1.Resour
 			containerReqs = applyNonMissing(containerReqs, opts.NonMissingContainerRequests)
 		}
 
+		addFarMem(containerReqs, pod, container.Name)
+
 		if opts.ContainerFn != nil {
 			opts.ContainerFn(containerReqs, Containers)
 		}
@@ -175,6 +179,8 @@ func AggregateContainerRequests(pod *v1.Pod, opts PodResourcesOptions) v1.Resour
 		addResourceList(reqs, containerReqs)
 	}
 
+	// note(matte21): we ignore far memory requests for init containers, because currently far memory
+	// is not supported for init containers.
 	restartableInitContainerReqs := v1.ResourceList{}
 	initContainerReqs := v1.ResourceList{}
 	// init containers define the minimum of any resource
@@ -221,6 +227,34 @@ func AggregateContainerRequests(pod *v1.Pod, opts PodResourcesOptions) v1.Resour
 
 	maxResourceList(reqs, initContainerReqs)
 	return reqs
+}
+
+func addFarMem(res v1.ResourceList, p *v1.Pod, containerName string) {
+	farMemAnnotationKey := farMemAnnotationKey(containerName)
+
+	farMemAnnotationVal, ok := p.Annotations[farMemAnnotationKey]
+	if !ok {
+		return
+	}
+
+	farMemQty, err := resource.ParseQuantity(farMemAnnotationVal)
+	if err != nil {
+		klog.Errorf("failed to parse far memory annotation %s of container %s of pod %s: %s",
+			farMemAnnotationVal, containerName, p.Name, err)
+		return
+	}
+
+	memQty, hasMem := res[v1.ResourceMemory]
+	if !hasMem {
+		memQty = *resource.NewQuantity(0, resource.DecimalSI)
+	}
+	memQty.Add(farMemQty)
+	res[v1.ResourceMemory] = memQty
+}
+
+// TODO: dedup this function with the identical one in memory manager pkg.
+func farMemAnnotationKey(containerName string) string {
+	return containerName + "/far-mem"
 }
 
 // determineContainerReqs will return a copy of the container requests based on if resizing is feasible or not.
@@ -322,7 +356,7 @@ func AggregateContainerLimits(pod *v1.Pod, opts PodResourcesOptions) v1.Resource
 	}
 
 	for _, container := range pod.Spec.Containers {
-		containerLimits := container.Resources.Limits
+		containerLimits := container.Resources.Limits.DeepCopy()
 		if opts.UseStatusResources {
 			cs, found := containerStatuses[container.Name]
 			if found && cs.Resources != nil {
@@ -330,12 +364,16 @@ func AggregateContainerLimits(pod *v1.Pod, opts PodResourcesOptions) v1.Resource
 			}
 		}
 
+		addFarMem(containerLimits, pod, container.Name)
+
 		if opts.ContainerFn != nil {
 			opts.ContainerFn(containerLimits, Containers)
 		}
 		addResourceList(limits, containerLimits)
 	}
 
+	// note(matte21): we ignore far memory limits for init containers, because currently far memory
+	// is not supported for init containers.
 	restartableInitContainerLimits := v1.ResourceList{}
 	initContainerLimits := v1.ResourceList{}
 	// init containers define the minimum of any resource
