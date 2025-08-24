@@ -83,10 +83,10 @@ type nNUMANode struct {
 	// are closer to this nNUMA than other neighbors. For example, on a two socket system with SNC
 	// on, the nNUMAs in the same socket as this nNUMA are closer to it than the nNUMAs in a socket
 	// directly connected to this nNUMA's socket.
-	SocketAndNeighborNNUMAtoLatencyNs map[int]map[int]struct{}
+	SocketAndNeighborNNUMAtoLatencyNs map[int]map[int]uint32
 
 	// The zNUMAs for which this nNUMA is (one of) the closest nNUMAs.
-	NeighborZNUMAToLatencyNs map[int]struct{}
+	NeighborZNUMAToLatencyNs map[int]uint32
 }
 
 type zNUMANode struct {
@@ -157,9 +157,9 @@ func (t *topology) addNtoNNUMAsNeighborRelationships(distanceMatrix map[int][]ui
 			for n2ID := range allNNUMAsInSocket {
 				if n2ID != n1ID {
 					if _, ok := n1.SocketAndNeighborNNUMAtoLatencyNs[s]; !ok {
-						n1.SocketAndNeighborNNUMAtoLatencyNs[s] = make(map[int]struct{})
+						n1.SocketAndNeighborNNUMAtoLatencyNs[s] = make(map[int]uint32)
 					}
-					n1.SocketAndNeighborNNUMAtoLatencyNs[s][n2ID] = struct{}{}
+					n1.SocketAndNeighborNNUMAtoLatencyNs[s][n2ID] = 0
 				}
 			}
 		}
@@ -190,9 +190,9 @@ func (t *topology) addNtoNNUMAsNeighborRelationships(distanceMatrix map[int][]ui
 			for n2ID := range nIDs {
 				if distances[n2ID] == minDistance {
 					if _, ok := n1.SocketAndNeighborNNUMAtoLatencyNs[s]; !ok {
-						n1.SocketAndNeighborNNUMAtoLatencyNs[s] = make(map[int]struct{})
+						n1.SocketAndNeighborNNUMAtoLatencyNs[s] = make(map[int]uint32)
 					}
-					n1.SocketAndNeighborNNUMAtoLatencyNs[s][n2ID] = struct{}{}
+					n1.SocketAndNeighborNNUMAtoLatencyNs[s][n2ID] = 0
 				}
 			}
 		}
@@ -236,7 +236,7 @@ func (t *topology) addNtoZNUMAsNeighborRelationships() {
 					continue
 				}
 
-				neighbor.NeighborZNUMAToLatencyNs[zN.ID] = struct{}{}
+				neighbor.NeighborZNUMAToLatencyNs[zN.ID] = 0
 			}
 		}
 	}
@@ -278,8 +278,8 @@ func (t *topology) addNNUMANode(nNode cadvisor.Node) {
 		ReservedCPUs: cpuset.New(),
 		// Neighbor relationships are initialized later, separately, so for now we set them to empty
 		// values.
-		NeighborZNUMAToLatencyNs:          make(map[int]struct{}, 0),
-		SocketAndNeighborNNUMAtoLatencyNs: make(map[int]map[int]struct{}),
+		NeighborZNUMAToLatencyNs:          make(map[int]uint32, 0),
+		SocketAndNeighborNNUMAtoLatencyNs: make(map[int]map[int]uint32),
 	}
 
 	if _, ok := t.SocketToNNUMANodesIDs[sockID]; !ok {
