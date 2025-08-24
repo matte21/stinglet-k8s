@@ -208,7 +208,7 @@ func (m *Manager) Admit(attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitR
 				zNUMAs := make([]int, 0, 1)
 				for _, nID := range nNUMAsGrp {
 					if m.topo.NNUMANodes[nID].FreeCPUs.Size() > 0 {
-						for zN := range m.topo.NNUMANodes[nID].NeighborZNUMAs {
+						for zN := range m.topo.NNUMANodes[nID].NeighborZNUMAToLatencyNs {
 							if _, alreadySeen := zNUMAsSet[zN]; !alreadySeen {
 								zNUMAsSet[zN] = struct{}{}
 								zNUMAs = append(zNUMAs, zN)
@@ -416,8 +416,8 @@ func (m *Manager) groupIsConnected(nNUMAsList []int) bool {
 		queue = queue[1:]
 
 		// TODO: first, consider all nNUMAs in the same socket.
-		neighbors := make([]int, 0, len(m.topo.NNUMANodes[node].NeighborNNUMAsBySocket))
-		for _, neighborsInOneSocket := range m.topo.NNUMANodes[node].NeighborNNUMAsBySocket {
+		neighbors := make([]int, 0, len(m.topo.NNUMANodes[node].SocketAndNeighborNNUMAtoLatencyNs))
+		for _, neighborsInOneSocket := range m.topo.NNUMANodes[node].SocketAndNeighborNNUMAtoLatencyNs {
 			for neighbor := range neighborsInOneSocket {
 				if _, neighborInGrp := nNUMAsGrp[neighbor]; neighborInGrp {
 					neighbors = append(neighbors, neighbor)
@@ -901,8 +901,8 @@ func getSysReservedCPUs(t *topology, numSysReservedCPUs int) cpuset.CPUSet {
 	// by ascending ID.
 	// TODO: add comments explaining the rationale for this sorting strategy.
 	sortByNumOfZNUMAsNeighbors := func(n1, n2 int) int {
-		n1zNUMAsNeighbors := len(t.NNUMANodes[n1].NeighborZNUMAs)
-		n2zNUMAsNeighbors := len(t.NNUMANodes[n2].NeighborZNUMAs)
+		n1zNUMAsNeighbors := len(t.NNUMANodes[n1].NeighborZNUMAToLatencyNs)
+		n2zNUMAsNeighbors := len(t.NNUMANodes[n2].NeighborZNUMAToLatencyNs)
 
 		// Tie breaker.
 		if n1zNUMAsNeighbors == n2zNUMAsNeighbors {

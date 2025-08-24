@@ -69,10 +69,10 @@ type nNUMANode struct {
 	FreeCPUs     cpuset.CPUSet
 	ReservedCPUs cpuset.CPUSet
 
-	// If SNC is off, there's a 1:1 mapping between sockets and nNUMAs. So NeighborNNUMAsBySocket
+	// If SNC is off, there's a 1:1 mapping between sockets and nNUMAs. So SocketAndNeighborNNUMAtoLatencyNs
 	// maps each socket directly connected to this nNUMA's socket to the nNUMA contained by that
 	// socket. If SNC is on, each socket contains more than one nNUMA. In that case,
-	// NeighborNNUMAsBySocket has one entry corresponding to this nNUMA's own socket, and whose
+	// SocketAndNeighborNNUMAtoLatencyNs has one entry corresponding to this nNUMA's own socket, and whose
 	// values are the IDs of all the nNUMAs in that same socket (i.e. the other nNUMAs in the same
 	// sub NUMA cluster). Plus, there's an entry for each socket directly connected to this nNUMA's
 	// socket, whose values are all or some of the IDs of the nNUMAs in that socket. More precisely,
@@ -83,10 +83,10 @@ type nNUMANode struct {
 	// are closer to this nNUMA than other neighbors. For example, on a two socket system with SNC
 	// on, the nNUMAs in the same socket as this nNUMA are closer to it than the nNUMAs in a socket
 	// directly connected to this nNUMA's socket.
-	NeighborNNUMAsBySocket map[int]map[int]struct{}
+	SocketAndNeighborNNUMAtoLatencyNs map[int]map[int]struct{}
 
 	// The zNUMAs for which this nNUMA is (one of) the closest nNUMAs.
-	NeighborZNUMAs map[int]struct{}
+	NeighborZNUMAToLatencyNs map[int]struct{}
 }
 
 type zNUMANode struct {
@@ -156,10 +156,10 @@ func (t *topology) addNtoNNUMAsNeighborRelationships(distanceMatrix map[int][]ui
 			n1 := t.NNUMANodes[n1ID]
 			for n2ID := range allNNUMAsInSocket {
 				if n2ID != n1ID {
-					if _, ok := n1.NeighborNNUMAsBySocket[s]; !ok {
-						n1.NeighborNNUMAsBySocket[s] = make(map[int]struct{})
+					if _, ok := n1.SocketAndNeighborNNUMAtoLatencyNs[s]; !ok {
+						n1.SocketAndNeighborNNUMAtoLatencyNs[s] = make(map[int]struct{})
 					}
-					n1.NeighborNNUMAsBySocket[s][n2ID] = struct{}{}
+					n1.SocketAndNeighborNNUMAtoLatencyNs[s][n2ID] = struct{}{}
 				}
 			}
 		}
@@ -189,10 +189,10 @@ func (t *topology) addNtoNNUMAsNeighborRelationships(distanceMatrix map[int][]ui
 			}
 			for n2ID := range nIDs {
 				if distances[n2ID] == minDistance {
-					if _, ok := n1.NeighborNNUMAsBySocket[s]; !ok {
-						n1.NeighborNNUMAsBySocket[s] = make(map[int]struct{})
+					if _, ok := n1.SocketAndNeighborNNUMAtoLatencyNs[s]; !ok {
+						n1.SocketAndNeighborNNUMAtoLatencyNs[s] = make(map[int]struct{})
 					}
-					n1.NeighborNNUMAsBySocket[s][n2ID] = struct{}{}
+					n1.SocketAndNeighborNNUMAtoLatencyNs[s][n2ID] = struct{}{}
 				}
 			}
 		}
@@ -236,7 +236,7 @@ func (t *topology) addNtoZNUMAsNeighborRelationships() {
 					continue
 				}
 
-				neighbor.NeighborZNUMAs[zN.ID] = struct{}{}
+				neighbor.NeighborZNUMAToLatencyNs[zN.ID] = struct{}{}
 			}
 		}
 	}
@@ -278,8 +278,8 @@ func (t *topology) addNNUMANode(nNode cadvisor.Node) {
 		ReservedCPUs: cpuset.New(),
 		// Neighbor relationships are initialized later, separately, so for now we set them to empty
 		// values.
-		NeighborZNUMAs:         make(map[int]struct{}, 0),
-		NeighborNNUMAsBySocket: make(map[int]map[int]struct{}),
+		NeighborZNUMAToLatencyNs:          make(map[int]struct{}, 0),
+		SocketAndNeighborNNUMAtoLatencyNs: make(map[int]map[int]struct{}),
 	}
 
 	if _, ok := t.SocketToNNUMANodesIDs[sockID]; !ok {
