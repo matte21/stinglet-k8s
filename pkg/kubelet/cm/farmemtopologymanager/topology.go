@@ -42,13 +42,13 @@ type topology struct {
 	// reconstructing it every time this information is needed.
 	AllCPUs cpuset.CPUSet
 
-	// A subset of the shared pool which is not exclusively allocatable. The membership of this pool
-	// is static for the lifetime of the Kubelet. The size of the reserved pool is
-	// ceil(systemreserved.cpu + kubereserved.cpu). Reserved CPUs are either taken topologically
-	// starting with lowest-indexed physical core, as reported by cAdvisor, or explicitly identified
-	// via the kubelet invocation CLI or config file. These CPUs are spared for the OS, the
-	// kubelet or other critical infrastructure components. Pods in BestEffort and Burstable QoS
-	// classes can still run on them though.
+	// A subset of the shared pool (AllCPUs - cpus reserved for guaranteed pods) which is not
+	// exclusively allocatable. The membership of this pool is static for the lifetime of the
+	// Kubelet. The size of the reserved pool is ceil(systemreserved.cpu + kubereserved.cpu).
+	// Reserved CPUs are either taken topologically starting with lowest-indexed physical core, as
+	// reported by cAdvisor, or explicitly identified via the kubelet invocation CLI or config file.
+	// These CPUs are spared for the OS, the kubelet or other critical infrastructure components.
+	// Pods in BestEffort and Burstable QoS classes can still run on them though.
 	SystemReservedCPUs cpuset.CPUSet
 }
 
