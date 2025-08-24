@@ -112,11 +112,12 @@ func initTopology(machineInfo *cadvisor.MachineInfo) *topology {
 		SystemReservedCPUs:    cpuset.New(),
 	}
 
-	// This holds the ACPI SLIT table.
+	// This holds the ACPI SLIT table. We'll use it to compute which NUMA node is neighbor to which
+	// other NUMA node.
 	distanceMatrix := make(map[int][]uint64, len(machineInfo.Topology))
 
 	// Populate all n and z NUMAs in the system using cadvisor's topology as source of truth.
-	// Do not set neihghboring relationships yet.
+	// Do not set neighboring relationships yet.
 	for _, numaNode := range machineInfo.Topology {
 		distanceMatrix[numaNode.Id] = numaNode.Distances
 
@@ -141,6 +142,13 @@ func initTopology(machineInfo *cadvisor.MachineInfo) *topology {
 
 	// First, handle SNC: if it's enabled, all nNUMAs in the same socket are neighbors.
 	// We don't consider an nNUMA to be neighbor with itself.
+	t.addNtoNNUMAsNeighborRelationships(distanceMatrix)
+
+	return t
+}
+
+// mutates t.
+func (t *topology) addNtoNNUMAsNeighborRelationships(distanceMatrix map[int][]uint64) {
 	for s, allNNUMAsInSocket := range t.SocketToNNUMANodesIDs {
 		if len(allNNUMAsInSocket) == 1 {
 			continue
@@ -190,8 +198,6 @@ func initTopology(machineInfo *cadvisor.MachineInfo) *topology {
 			}
 		}
 	}
-
-	return t
 }
 
 // mutates t.
