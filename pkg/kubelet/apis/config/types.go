@@ -543,6 +543,10 @@ type KubeletConfiguration struct {
 	// +featureGate=UserNamespaceSupport
 	// +optional
 	UserNamespaces *UserNamespaces
+
+	// NUMALatencyMatrixFile is the path to the file holding the NUMA latency matrix.
+	//+optional
+	NUMALatencyMatrixFile string
 }
 
 // KubeletAuthorizationMode denotes the authorization mode for the kubelet

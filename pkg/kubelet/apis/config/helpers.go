@@ -28,5 +28,6 @@ func KubeletConfigurationPathRefs(kc *KubeletConfiguration) []*string {
 	paths = append(paths, &kc.ResolverConfig)
 	paths = append(paths, &kc.VolumePluginDir)
 	paths = append(paths, &kc.PodLogsDir)
+	paths = append(paths, &kc.NUMALatencyMatrixFile)
 	return paths
 }

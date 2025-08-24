@@ -126,6 +126,7 @@ func Funcs(codecs runtimeserializer.CodecFactory) []interface{} {
 				"AllAlpha": false,
 				"AllBeta":  true,
 			}
+			obj.NUMALatencyMatrixFile = ""
 		},
 
 		// tokenAttributes field is only supported in v1 CredentialProvider
