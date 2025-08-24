@@ -244,29 +244,29 @@ func (t *topology) addNtoZNUMAsNeighborRelationships() {
 }
 
 // mutates t.
-func (t *topology) addNNUMANode(numaNode cadvisor.Node) {
+func (t *topology) addNNUMANode(nNode cadvisor.Node) {
 	// Glossary: with hyperthreading, a cpu is a hardware thread, while without
 	// hyperthreading a CPU is a physical core (as far as this code is concerned).
-	cpusIDs := make([]int, 0, len(numaNode.Cores)*len(numaNode.Cores[0].Threads))
+	cpusIDs := make([]int, 0, len(nNode.Cores)*len(nNode.Cores[0].Threads))
 
 	// The following code assumes that core ID = thread ID when hyper-threading is off.
 	// I didn't check the assumption myself, but the vanilla K8s CPU manager code makes the
 	// same assumption, so I guess it's safe to make it here as well.
-	for _, c := range numaNode.Cores {
+	for _, c := range nNode.Cores {
 		cpusIDs = append(cpusIDs, c.Threads...)
 	}
 
 	t.AllCPUs = t.AllCPUs.Union(cpuset.New(cpusIDs...))
 
-	sockID := numaNode.Cores[0].SocketID
+	sockID := nNode.Cores[0].SocketID
 
-	t.NNUMANodes[numaNode.Id] = &nNUMANode{
-		ID:       numaNode.Id,
+	t.NNUMANodes[nNode.Id] = &nNUMANode{
+		ID:       nNode.Id,
 		SocketID: sockID,
 		Mem: Mem{
-			TotBytes:         numaNode.Memory,
-			AllocatableBytes: numaNode.Memory,
-			FreeBytes:        numaNode.Memory,
+			TotBytes:         nNode.Memory,
+			AllocatableBytes: nNode.Memory,
+			FreeBytes:        nNode.Memory,
 		},
 		FreeCPUs:               cpuset.New(cpusIDs...),
 		ReservedCPUs:           cpuset.New(),
@@ -277,17 +277,17 @@ func (t *topology) addNNUMANode(numaNode cadvisor.Node) {
 	if _, ok := t.SocketToNNUMANodesIDs[sockID]; !ok {
 		t.SocketToNNUMANodesIDs[sockID] = make(map[int]struct{}, 1)
 	}
-	t.SocketToNNUMANodesIDs[sockID][numaNode.Id] = struct{}{}
+	t.SocketToNNUMANodesIDs[sockID][nNode.Id] = struct{}{}
 }
 
 // mutates t.
-func (t *topology) addZNUMANode(numaNode cadvisor.Node) {
-	t.ZNUMANodes[numaNode.Id] = &zNUMANode{
-		ID: numaNode.Id,
+func (t *topology) addZNUMANode(zNode cadvisor.Node) {
+	t.ZNUMANodes[zNode.Id] = &zNUMANode{
+		ID: zNode.Id,
 		Mem: Mem{
-			TotBytes:         numaNode.Memory,
-			AllocatableBytes: numaNode.Memory,
-			FreeBytes:        numaNode.Memory,
+			TotBytes:         zNode.Memory,
+			AllocatableBytes: zNode.Memory,
+			FreeBytes:        zNode.Memory,
 		},
 	}
 }
