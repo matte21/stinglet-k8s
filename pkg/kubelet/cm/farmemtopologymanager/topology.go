@@ -69,6 +69,10 @@ type nNUMANode struct {
 	FreeCPUs     cpuset.CPUSet
 	ReservedCPUs cpuset.CPUSet
 
+	// LocalMemLatencyNs is the latency in ns to access this nNUMA's memory from a local core (i.e.
+	// inside this nNUMA itself)
+	LocalMemLatencyNs uint32
+
 	// If SNC is off, there's a 1:1 mapping between sockets and nNUMAs. So SocketToNeighborNNUMAtoLatencyNs
 	// maps each socket directly connected to this nNUMA's socket to the nNUMA contained by that
 	// socket. If SNC is on, each socket contains more than one nNUMA. In that case,
@@ -83,9 +87,13 @@ type nNUMANode struct {
 	// are closer to this nNUMA than other neighbors. For example, on a two socket system with SNC
 	// on, the nNUMAs in the same socket as this nNUMA are closer to it than the nNUMAs in a socket
 	// directly connected to this nNUMA's socket.
+	// The uint32 value is the latency in ns to access the neighbor nNUMA's memory from a core
+	// inside this nNUMA.
 	SocketToNeighborNNUMAtoLatencyNs map[int]map[int]uint32
 
 	// The zNUMAs for which this nNUMA is (one of) the closest nNUMAs.
+	// The uint32 value is the latency in ns to access the neighbor zNUMA's memory from a core
+	// inside this nNUMA.
 	NeighborZNUMAToLatencyNs map[int]uint32
 }
 
