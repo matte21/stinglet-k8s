@@ -124,14 +124,7 @@ func initTopology(machineInfo *cadvisor.MachineInfo) *topology {
 		// to check how many threads there are as well.
 		if len(numaNode.Cores) == 0 {
 			// If we're here, this NUMA node is a zNUMA.
-			t.ZNUMANodes[numaNode.Id] = &zNUMANode{
-				ID: numaNode.Id,
-				Mem: Mem{
-					TotBytes:         numaNode.Memory,
-					AllocatableBytes: numaNode.Memory,
-					FreeBytes:        numaNode.Memory,
-				},
-			}
+			t.addZNUMANode(numaNode)
 		} else {
 			// If we're here, this NUMA node is a nNUMA.
 
@@ -270,4 +263,15 @@ func initTopology(machineInfo *cadvisor.MachineInfo) *topology {
 	}
 
 	return t
+}
+
+func (t *topology) addZNUMANode(numaNode cadvisor.Node) {
+	t.ZNUMANodes[numaNode.Id] = &zNUMANode{
+		ID: numaNode.Id,
+		Mem: Mem{
+			TotBytes:         numaNode.Memory,
+			AllocatableBytes: numaNode.Memory,
+			FreeBytes:        numaNode.Memory,
+		},
+	}
 }
