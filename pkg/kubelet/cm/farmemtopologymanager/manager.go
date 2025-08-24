@@ -416,8 +416,8 @@ func (m *Manager) groupIsConnected(nNUMAsList []int) bool {
 		queue = queue[1:]
 
 		// TODO: first, consider all nNUMAs in the same socket.
-		neighbors := make([]int, 0, len(m.topo.NNUMANodes[node].SocketAndNeighborNNUMAtoLatencyNs))
-		for _, neighborsInOneSocket := range m.topo.NNUMANodes[node].SocketAndNeighborNNUMAtoLatencyNs {
+		neighbors := make([]int, 0, len(m.topo.NNUMANodes[node].SocketToNeighborNNUMAtoLatencyNs))
+		for _, neighborsInOneSocket := range m.topo.NNUMANodes[node].SocketToNeighborNNUMAtoLatencyNs {
 			for neighbor := range neighborsInOneSocket {
 				if _, neighborInGrp := nNUMAsGrp[neighbor]; neighborInGrp {
 					neighbors = append(neighbors, neighbor)
