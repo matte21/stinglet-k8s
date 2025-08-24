@@ -139,9 +139,6 @@ func initTopology(machineInfo *cadvisor.MachineInfo) *topology {
 	t.addNtoZNUMAsNeighborRelationships()
 
 	// Finally, initialize neighboring relationships between nNUMAs only.
-
-	// First, handle SNC: if it's enabled, all nNUMAs in the same socket are neighbors.
-	// We don't consider an nNUMA to be neighbor with itself.
 	t.addNtoNNUMAsNeighborRelationships(distanceMatrix)
 
 	return t
@@ -149,6 +146,8 @@ func initTopology(machineInfo *cadvisor.MachineInfo) *topology {
 
 // mutates t.
 func (t *topology) addNtoNNUMAsNeighborRelationships(distanceMatrix map[int][]uint64) {
+	// First, handle SNC: if it's enabled, all nNUMAs in the same socket are neighbors.
+	// We don't consider an nNUMA to be neighbor with itself.
 	for s, allNNUMAsInSocket := range t.SocketToNNUMANodesIDs {
 		if len(allNNUMAsInSocket) == 1 {
 			continue
@@ -247,11 +246,13 @@ func (t *topology) addNtoZNUMAsNeighborRelationships() {
 func (t *topology) addNNUMANode(nNode cadvisor.Node) {
 	// Glossary: with hyperthreading, a cpu is a hardware thread, while without
 	// hyperthreading a CPU is a physical core (as far as this code is concerned).
+	// We assume all cores have the same number of threads.
 	cpusIDs := make([]int, 0, len(nNode.Cores)*len(nNode.Cores[0].Threads))
 
 	// The following code assumes that core ID = thread ID when hyper-threading is off.
-	// I didn't check the assumption myself, but the vanilla K8s CPU manager code makes the
-	// same assumption, so I guess it's safe to make it here as well.
+	// I didn't check the assumption myself, but the vanilla K8s CPU manager code makes the same
+	// assumption, so I guess it's a safe assumption to make (or if it's not, we're not introducing
+	// a new bug, we're only keeping a pre-existing one).
 	for _, c := range nNode.Cores {
 		cpusIDs = append(cpusIDs, c.Threads...)
 	}
@@ -268,8 +269,15 @@ func (t *topology) addNNUMANode(nNode cadvisor.Node) {
 			AllocatableBytes: nNode.Memory,
 			FreeBytes:        nNode.Memory,
 		},
-		FreeCPUs:               cpuset.New(cpusIDs...),
-		ReservedCPUs:           cpuset.New(),
+		// Note: always assuming all CPUs are free means that this code breaks (badly) if the
+		// kubelet crashes and restarts, because we forget which CPUs were reserved before the
+		// crash. Fixing this isn't that hard conceptually, but it's more code and I don't have time
+		// given that it's not critical for a research project. But at some point we might want to
+		// fix this.
+		FreeCPUs:     cpuset.New(cpusIDs...),
+		ReservedCPUs: cpuset.New(),
+		// Neighbor relationships are initialized later, separately, so for now we set them to empty
+		// values.
 		NeighborZNUMAs:         make(map[int]struct{}, 0),
 		NeighborNNUMAsBySocket: make(map[int]map[int]struct{}),
 	}
