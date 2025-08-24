@@ -127,40 +127,7 @@ func initTopology(machineInfo *cadvisor.MachineInfo) *topology {
 			t.addZNUMANode(numaNode)
 		} else {
 			// If we're here, this NUMA node is a nNUMA.
-
-			// Glossary: with hyperthreading, a cpu is a hardware thread, while without
-			// hyperthreading a CPU is a physical core (as far as this code is concerned).
-			cpusIDs := make([]int, 0, len(numaNode.Cores)*len(numaNode.Cores[0].Threads))
-
-			// The following code assumes that core ID = thread ID when hyper-threading is off.
-			// I didn't check the assumption myself, but the vanilla K8s CPU manager code makes the
-			// same assumption, so I guess it's safe to make it here as well.
-			for _, c := range numaNode.Cores {
-				cpusIDs = append(cpusIDs, c.Threads...)
-			}
-
-			t.AllCPUs = t.AllCPUs.Union(cpuset.New(cpusIDs...))
-
-			sockID := numaNode.Cores[0].SocketID
-
-			t.NNUMANodes[numaNode.Id] = &nNUMANode{
-				ID:       numaNode.Id,
-				SocketID: sockID,
-				Mem: Mem{
-					TotBytes:         numaNode.Memory,
-					AllocatableBytes: numaNode.Memory,
-					FreeBytes:        numaNode.Memory,
-				},
-				FreeCPUs:               cpuset.New(cpusIDs...),
-				ReservedCPUs:           cpuset.New(),
-				NeighborZNUMAs:         make(map[int]struct{}, 0),
-				NeighborNNUMAsBySocket: make(map[int]map[int]struct{}),
-			}
-
-			if _, ok := t.SocketToNNUMANodesIDs[sockID]; !ok {
-				t.SocketToNNUMANodesIDs[sockID] = make(map[int]struct{}, 1)
-			}
-			t.SocketToNNUMANodesIDs[sockID][numaNode.Id] = struct{}{}
+			t.addNNUMANode(numaNode)
 		}
 	}
 
@@ -263,6 +230,42 @@ func initTopology(machineInfo *cadvisor.MachineInfo) *topology {
 	}
 
 	return t
+}
+
+func (t *topology) addNNUMANode(numaNode cadvisor.Node) {
+	// Glossary: with hyperthreading, a cpu is a hardware thread, while without
+	// hyperthreading a CPU is a physical core (as far as this code is concerned).
+	cpusIDs := make([]int, 0, len(numaNode.Cores)*len(numaNode.Cores[0].Threads))
+
+	// The following code assumes that core ID = thread ID when hyper-threading is off.
+	// I didn't check the assumption myself, but the vanilla K8s CPU manager code makes the
+	// same assumption, so I guess it's safe to make it here as well.
+	for _, c := range numaNode.Cores {
+		cpusIDs = append(cpusIDs, c.Threads...)
+	}
+
+	t.AllCPUs = t.AllCPUs.Union(cpuset.New(cpusIDs...))
+
+	sockID := numaNode.Cores[0].SocketID
+
+	t.NNUMANodes[numaNode.Id] = &nNUMANode{
+		ID:       numaNode.Id,
+		SocketID: sockID,
+		Mem: Mem{
+			TotBytes:         numaNode.Memory,
+			AllocatableBytes: numaNode.Memory,
+			FreeBytes:        numaNode.Memory,
+		},
+		FreeCPUs:               cpuset.New(cpusIDs...),
+		ReservedCPUs:           cpuset.New(),
+		NeighborZNUMAs:         make(map[int]struct{}, 0),
+		NeighborNNUMAsBySocket: make(map[int]map[int]struct{}),
+	}
+
+	if _, ok := t.SocketToNNUMANodesIDs[sockID]; !ok {
+		t.SocketToNNUMANodesIDs[sockID] = make(map[int]struct{}, 1)
+	}
+	t.SocketToNNUMANodesIDs[sockID][numaNode.Id] = struct{}{}
 }
 
 func (t *topology) addZNUMANode(numaNode cadvisor.Node) {
