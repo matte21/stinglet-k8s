@@ -92,7 +92,6 @@ type nNUMANode struct {
 type zNUMANode struct {
 	ID int
 	Mem
-	NeighborNNUMAsBySocket map[int]map[int]struct{}
 }
 
 type Mem struct {
@@ -132,7 +131,6 @@ func initTopology(machineInfo *cadvisor.MachineInfo) *topology {
 					AllocatableBytes: numaNode.Memory,
 					FreeBytes:        numaNode.Memory,
 				},
-				NeighborNNUMAsBySocket: make(map[int]map[int]struct{}),
 			}
 		} else {
 			// If we're here, this NUMA node is a nNUMA.
@@ -211,11 +209,6 @@ func initTopology(machineInfo *cadvisor.MachineInfo) *topology {
 				if !ok {
 					continue
 				}
-
-				if _, ok := zN.NeighborNNUMAsBySocket[neighbor.SocketID]; !ok {
-					zN.NeighborNNUMAsBySocket[neighbor.SocketID] = make(map[int]struct{}, 1)
-				}
-				zN.NeighborNNUMAsBySocket[neighbor.SocketID][neighborID] = struct{}{}
 
 				neighbor.NeighborZNUMAs[zN.ID] = struct{}{}
 			}
