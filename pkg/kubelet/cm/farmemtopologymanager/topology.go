@@ -146,8 +146,8 @@ func initTopology(machineInfo *cadvisor.MachineInfo) *topology {
 
 // mutates t.
 func (t *topology) addNtoNNUMAsNeighborRelationships(distanceMatrix map[int][]uint64) {
-	// First, handle SNC: if it's enabled, all nNUMAs in the same socket are neighbors.
-	// We don't consider an nNUMA to be neighbor with itself.
+	// First, handle Sub NUMA Clustering (SNC): if it's enabled, all nNUMAs in the same socket are
+	// neighbors. We don't consider an nNUMA to be neighbor with itself.
 	for s, allNNUMAsInSocket := range t.SocketToNNUMANodesIDs {
 		if len(allNNUMAsInSocket) == 1 {
 			continue
