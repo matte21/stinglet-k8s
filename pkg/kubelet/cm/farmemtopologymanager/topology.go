@@ -135,45 +135,7 @@ func initTopology(machineInfo *cadvisor.MachineInfo) *topology {
 	// First, initialize those between n and z NUMAs.
 	// To do that, use Linux sysfs files described here: https://docs.kernel.org/admin-guide/mm/numaperf.html.
 	// TODO: I strongly suspect that this breaks with our simulation approach. Double-check that.
-	for _, zN := range t.ZNUMANodes {
-		// zNUMAs might dynamically grow and shrink in terms of memory. In one of the systems I have
-		// access to, if a zNUMA has 0 bytes, there are no access0 and access1 sysfs folders, hence
-		// we can't use those folders for discovering neighboring relationships. But it doesn't
-		// matter: their size is 0, so they'll never be part of an allocation (until they grow
-		// in capactiy, but in that case we have to update the topology).
-		if zN.Mem.TotBytes <= 0 {
-			continue
-		}
-
-		// TODO: add comment on why we use both index 0 and 1 (in theory we shouldn't, but practice
-		// mandates that).
-		for i := 0; i <= 1; i++ {
-			dir := "/sys/devices/system/node/node" + strconv.Itoa(zN.ID) + "/access" + strconv.Itoa(i) + "/initiators/"
-			files, err := os.ReadDir(dir)
-			if err != nil {
-				panic(fmt.Errorf("failed to list files in %s while findind neighbors for zNUMA node %d: %v", dir, zN.ID, err))
-			}
-
-			for _, f := range files {
-				neighborIDStr, ok := strings.CutPrefix(f.Name(), "node")
-				if !ok {
-					continue
-				}
-
-				neighborID, err := strconv.Atoi(neighborIDStr)
-				if err != nil {
-					continue
-				}
-
-				neighbor, ok := t.NNUMANodes[neighborID]
-				if !ok {
-					continue
-				}
-
-				neighbor.NeighborZNUMAs[zN.ID] = struct{}{}
-			}
-		}
-	}
+	t.addNtoZNUMAsNeighborRelationships()
 
 	// Finally, initialize neighboring relationships between nNUMAs only.
 
@@ -232,6 +194,50 @@ func initTopology(machineInfo *cadvisor.MachineInfo) *topology {
 	return t
 }
 
+// mutates t.
+func (t *topology) addNtoZNUMAsNeighborRelationships() {
+	for _, zN := range t.ZNUMANodes {
+		// zNUMAs might dynamically grow and shrink in terms of memory. In one of the systems I have
+		// access to, if a zNUMA has 0 bytes, there are no access0 and access1 sysfs folders, hence
+		// we can't use those folders for discovering neighboring relationships. But it doesn't
+		// matter: their size is 0, so they'll never be part of an allocation (until they grow
+		// in capactiy, but in that case we have to update the topology).
+		if zN.Mem.TotBytes <= 0 {
+			continue
+		}
+
+		// TODO: add comment on why we use both index 0 and 1 (in theory we shouldn't, but practice
+		// mandates that).
+		for i := 0; i <= 1; i++ {
+			dir := "/sys/devices/system/node/node" + strconv.Itoa(zN.ID) + "/access" + strconv.Itoa(i) + "/initiators/"
+			files, err := os.ReadDir(dir)
+			if err != nil {
+				panic(fmt.Errorf("failed to list files in %s while findind neighbors for zNUMA node %d: %v", dir, zN.ID, err))
+			}
+
+			for _, f := range files {
+				neighborIDStr, ok := strings.CutPrefix(f.Name(), "node")
+				if !ok {
+					continue
+				}
+
+				neighborID, err := strconv.Atoi(neighborIDStr)
+				if err != nil {
+					continue
+				}
+
+				neighbor, ok := t.NNUMANodes[neighborID]
+				if !ok {
+					continue
+				}
+
+				neighbor.NeighborZNUMAs[zN.ID] = struct{}{}
+			}
+		}
+	}
+}
+
+// mutates t.
 func (t *topology) addNNUMANode(numaNode cadvisor.Node) {
 	// Glossary: with hyperthreading, a cpu is a hardware thread, while without
 	// hyperthreading a CPU is a physical core (as far as this code is concerned).
@@ -268,6 +274,7 @@ func (t *topology) addNNUMANode(numaNode cadvisor.Node) {
 	t.SocketToNNUMANodesIDs[sockID][numaNode.Id] = struct{}{}
 }
 
+// mutates t.
 func (t *topology) addZNUMANode(numaNode cadvisor.Node) {
 	t.ZNUMANodes[numaNode.Id] = &zNUMANode{
 		ID: numaNode.Id,
