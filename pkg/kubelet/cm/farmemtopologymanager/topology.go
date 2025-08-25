@@ -71,7 +71,7 @@ type nNUMANode struct {
 
 	// LocalMemLatencyNs is the latency in ns to access this nNUMA's memory from a local core (i.e.
 	// inside this nNUMA itself)
-	LocalMemLatencyNs uint32
+	LocalMemLatencyNs float32
 
 	// If SNC is off, there's a 1:1 mapping between sockets and nNUMAs. So SocketToNeighborNNUMAtoLatencyNs
 	// maps each socket directly connected to this nNUMA's socket to the nNUMA contained by that
@@ -89,12 +89,12 @@ type nNUMANode struct {
 	// directly connected to this nNUMA's socket.
 	// The uint32 value is the latency in ns to access the neighbor nNUMA's memory from a core
 	// inside this nNUMA.
-	SocketToNeighborNNUMAtoLatencyNs map[int]map[int]uint32
+	SocketToNeighborNNUMAtoLatencyNs map[int]map[int]float32
 
 	// The zNUMAs for which this nNUMA is (one of) the closest nNUMAs.
 	// The uint32 value is the latency in ns to access the neighbor zNUMA's memory from a core
 	// inside this nNUMA.
-	NeighborZNUMAToLatencyNs map[int]uint32
+	NeighborZNUMAToLatencyNs map[int]float32
 }
 
 type zNUMANode struct {
@@ -165,7 +165,7 @@ func (t *topology) addNtoNNUMAsNeighborRelationships(distanceMatrix map[int][]ui
 			for n2ID := range allNNUMAsInSocket {
 				if n2ID != n1ID {
 					if _, ok := n1.SocketToNeighborNNUMAtoLatencyNs[s]; !ok {
-						n1.SocketToNeighborNNUMAtoLatencyNs[s] = make(map[int]uint32)
+						n1.SocketToNeighborNNUMAtoLatencyNs[s] = make(map[int]float32)
 					}
 					n1.SocketToNeighborNNUMAtoLatencyNs[s][n2ID] = 0
 				}
@@ -198,7 +198,7 @@ func (t *topology) addNtoNNUMAsNeighborRelationships(distanceMatrix map[int][]ui
 			for n2ID := range nIDs {
 				if distances[n2ID] == minDistance {
 					if _, ok := n1.SocketToNeighborNNUMAtoLatencyNs[s]; !ok {
-						n1.SocketToNeighborNNUMAtoLatencyNs[s] = make(map[int]uint32)
+						n1.SocketToNeighborNNUMAtoLatencyNs[s] = make(map[int]float32)
 					}
 					n1.SocketToNeighborNNUMAtoLatencyNs[s][n2ID] = 0
 				}
@@ -286,8 +286,8 @@ func (t *topology) addNNUMANode(nNode cadvisor.Node) {
 		ReservedCPUs: cpuset.New(),
 		// Neighbor relationships are initialized later, separately, so for now we set them to empty
 		// values.
-		NeighborZNUMAToLatencyNs:         make(map[int]uint32, 0),
-		SocketToNeighborNNUMAtoLatencyNs: make(map[int]map[int]uint32),
+		NeighborZNUMAToLatencyNs:         make(map[int]float32, 0),
+		SocketToNeighborNNUMAtoLatencyNs: make(map[int]map[int]float32),
 	}
 
 	if _, ok := t.SocketToNNUMANodesIDs[sockID]; !ok {
