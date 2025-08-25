@@ -199,6 +199,8 @@ type NodeConfig struct {
 	TopologyManagerPolicy        string
 	TopologyManagerPolicyOptions map[string]string
 	CgroupVersion                int
+
+	NUMALatencyMatrixFile string
 }
 
 type NodeAllocatableConfig struct {

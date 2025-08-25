@@ -90,9 +90,10 @@ func New(mi *cadvisor.MachineInfo,
 	specificSystemReservedCPUs cpuset.CPUSet,
 	specificSystemReservedMem []kubeletconfig.MemoryReservation,
 	systemReservedQuantities v1.ResourceList,
-	reconcilePeriod time.Duration) (*Manager, error) {
+	reconcilePeriod time.Duration,
+	numaLatencyMatrixFile string) (*Manager, error) {
 
-	topo := initTopology(mi)
+	topo := initTopology(mi, numaLatencyMatrixFile)
 
 	if err := claimSystemReservedCPUs(topo, specificSystemReservedCPUs, systemReservedQuantities); err != nil {
 		return nil, fmt.Errorf("failed to build far memory manager: failed to reserve system CPUs: %v", err)

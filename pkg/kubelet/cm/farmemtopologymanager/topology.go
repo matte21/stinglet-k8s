@@ -1,7 +1,9 @@
 package farmemtopologymanager
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"strconv"
@@ -50,6 +52,10 @@ type topology struct {
 	// These CPUs are spared for the OS, the kubelet or other critical infrastructure components.
 	// Pods in BestEffort and Burstable QoS classes can still run on them though.
 	SystemReservedCPUs cpuset.CPUSet
+}
+
+type NUMALatencyMatrix struct {
+	Matrix map[int][]float32 `json:"Matrix"`
 }
 
 func (t *topology) numaNodeMem(id int) (*Mem, bool) {
@@ -111,7 +117,9 @@ type Mem struct {
 
 // TODO: state which symmetry assumptions we make (both in terms of distances and number of NUMAs
 // per socket).
-func initTopology(machineInfo *cadvisor.MachineInfo) *topology {
+// TODO: now that we have the latency matrix file, refactor topology initialization to use only
+// that, and not the SLIT and the sysfs NUMA perf files.
+func initTopology(machineInfo *cadvisor.MachineInfo, numaLatencyMatrixFile string) *topology {
 	t := &topology{
 		SocketToNNUMANodesIDs: make(map[int]map[int]struct{}),
 		NNUMANodes:            make(map[int]*nNUMANode),
@@ -121,7 +129,8 @@ func initTopology(machineInfo *cadvisor.MachineInfo) *topology {
 	}
 
 	// This holds the ACPI SLIT table. We'll use it to compute which NUMA node is neighbor to which
-	// other NUMA node.
+	// other NUMA node. This is NOT the numaLatencyMatrix, which contains actual measurements of the
+	// latency with absolute numbers.
 	distanceMatrix := make(map[int][]uint64, len(machineInfo.Topology))
 
 	// Populate all n and z NUMAs in the system using cadvisor's topology as source of truth.
@@ -149,7 +158,69 @@ func initTopology(machineInfo *cadvisor.MachineInfo) *topology {
 	// Finally, initialize neighboring relationships between nNUMAs only.
 	t.addNtoNNUMAsNeighborRelationships(distanceMatrix)
 
+	t.addLatencyBetweenNUMAs(numaLatencyMatrixFile)
+
 	return t
+}
+
+func (t *topology) addLatencyBetweenNUMAs(numaLatencyMatrixFilePath string) {
+	latMatrix := readLatencyMatrix(numaLatencyMatrixFilePath)
+
+	for _, node := range t.NNUMANodes {
+		// Get the latencies from nNUMA node "node".
+		lats, ok := latMatrix[node.ID]
+		if !ok {
+			panic(fmt.Errorf("malformed latency matrix in file %s: latencies from NUMA node %d are missing",
+				numaLatencyMatrixFilePath, node.ID))
+		}
+
+		// Save the latency from "node" to itself.
+		if node.ID >= len(lats) {
+			panic(fmt.Errorf("malformed latency matrix in file %s: latency from NUMA node %d to itself is missing",
+				numaLatencyMatrixFilePath, node.ID))
+		}
+		node.LocalMemLatencyNs = lats[node.ID]
+
+		// Save the latencies from "node" to each of the zNUMA nodes it is a neighbor of.
+		for neighbor := range node.NeighborZNUMAToLatencyNs {
+			if neighbor >= len(lats) {
+				panic(fmt.Errorf("malformed latency matrix in file %s: latency from NUMA node %d to %d is missing",
+					numaLatencyMatrixFilePath, node.ID, neighbor))
+			}
+			node.NeighborZNUMAToLatencyNs[neighbor] = lats[neighbor]
+		}
+
+		// Save the latencies from "node" to each of the nNUMA nodes it is a neighbor of.
+		for socket := range node.SocketToNeighborNNUMAtoLatencyNs {
+			for neighbor := range node.SocketToNeighborNNUMAtoLatencyNs[socket] {
+				if neighbor >= len(lats) {
+					panic(fmt.Errorf("malformed latency matrix in file %s: latency from NUMA node %d to %d is missing",
+						numaLatencyMatrixFilePath, node.ID, neighbor))
+				}
+				node.SocketToNeighborNNUMAtoLatencyNs[socket][neighbor] = lats[neighbor]
+			}
+		}
+	}
+}
+
+func readLatencyMatrix(numaLatencyMatrixFilePath string) map[int][]float32 {
+	numaLatencyMatrixFile, err := os.Open(numaLatencyMatrixFilePath)
+	if err != nil {
+		panic(fmt.Errorf("far memory topology manager failed to open NUMA latency matrix file %s to parse NUMA latencies: %v", numaLatencyMatrixFilePath, err))
+	}
+	defer numaLatencyMatrixFile.Close()
+
+	numaLatencyMatrixRawBytes, err := io.ReadAll(numaLatencyMatrixFile)
+	if err != nil {
+		panic(fmt.Errorf("far memory topology manager failed to read from NUMA latency matrix file %s to parse NUMA latencies: %v", numaLatencyMatrixFilePath, err))
+	}
+
+	nlm := &NUMALatencyMatrix{}
+	if err := json.Unmarshal(numaLatencyMatrixRawBytes, nlm); err != nil {
+		panic(fmt.Errorf("far memory topology manager failed to unmarshal NUMA latency matrix JSON read from file %s: %v", numaLatencyMatrixFilePath, err))
+	}
+
+	return nlm.Matrix
 }
 
 // mutates t.

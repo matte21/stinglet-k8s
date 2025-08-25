@@ -879,6 +879,7 @@ func run(ctx context.Context, s *options.KubeletServer, kubeDeps *kubelet.Depend
 				TopologyManagerPolicy:        s.TopologyManagerPolicy,
 				TopologyManagerScope:         s.TopologyManagerScope,
 				TopologyManagerPolicyOptions: topologyManagerPolicyOptions,
+				NUMALatencyMatrixFile:        s.NUMALatencyMatrixFile,
 			},
 			s.FailSwapOn,
 			kubeDeps.Recorder,

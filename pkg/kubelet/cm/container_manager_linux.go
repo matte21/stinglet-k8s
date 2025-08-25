@@ -297,6 +297,7 @@ func NewContainerManager(mountUtil mount.Interface, cadvisorInterface cadvisor.I
 			nodeConfig.MemoryManagerReservedMemory,
 			cm.GetNodeAllocatableReservation(),
 			nodeConfig.CPUManagerReconcilePeriod,
+			nodeConfig.NUMALatencyMatrixFile,
 		)
 	} else {
 		cm.topologyManager, err = topologymanager.NewManager(
