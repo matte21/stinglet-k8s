@@ -55,7 +55,7 @@ type topology struct {
 }
 
 type NUMALatencyMatrix struct {
-	Matrix map[int][]float32 `json:"Matrix"`
+	Matrix map[int][]float32
 }
 
 func (t *topology) numaNodeMem(id int) (*Mem, bool) {
