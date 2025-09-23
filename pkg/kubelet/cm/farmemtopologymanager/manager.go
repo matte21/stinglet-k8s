@@ -315,7 +315,7 @@ func (m *Manager) Admit(attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitR
 				}
 				if freeFarMemBytes >= req.farMem {
 					if m.candidateBetterThanCurrentZNUMAs(zNUMAsGrp, zNUMAsCombo) {
-						nNUMAsCombo = zNUMAsGrp
+						zNUMAsCombo = zNUMAsGrp
 					}
 					// TODO: continue instead. But in our testbeds it's not needed.
 					return Break
