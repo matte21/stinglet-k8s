@@ -306,11 +306,15 @@ func (m *Manager) Admit(attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitR
 		}
 		slices.Sort(allZNUMAs)
 
+		klog.InfoS("zNUMAs: %d", len(zNUMAsCombo))
+
 		for j := 1; j <= len(allZNUMAs); j++ {
 			// We still do a first fit, and we should do better.
 			iterateCombinations(allZNUMAs, j, func(zNUMAsGrp []int) LoopControl {
+
 				freeFarMemBytes := uint64(0)
 				for _, znID := range zNUMAsGrp {
+					klog.InfoS("trying zNUMA w free mem: %d %v", znID, m.topo.ZNUMANodes[znID].FreeBytes)
 					freeFarMemBytes += m.topo.ZNUMANodes[znID].FreeBytes
 				}
 				if freeFarMemBytes >= req.farMem {
