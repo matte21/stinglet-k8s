@@ -1344,7 +1344,7 @@ func (m *Manager) candidateBetterThanCurrent(candidate, current []int, farMemReq
 			for zN := range m.topo.NNUMANodes[nID].NeighborZNUMAs {
 				if _, alreadySeen := zNUMAsSet[zN]; !alreadySeen {
 					zNUMAsSet[zN] = struct{}{}
-					candidateFarMem += m.topo.ZNUMANodes[nID].AllocatableBytes
+					candidateFarMem += m.topo.ZNUMANodes[zN].AllocatableBytes
 				}
 			}
 		}
@@ -1355,7 +1355,7 @@ func (m *Manager) candidateBetterThanCurrent(candidate, current []int, farMemReq
 			for zN := range m.topo.NNUMANodes[nID].NeighborZNUMAs {
 				if _, alreadySeen := zNUMAsSet[zN]; !alreadySeen {
 					zNUMAsSet[zN] = struct{}{}
-					currentFarMem += m.topo.ZNUMANodes[nID].AllocatableBytes
+					currentFarMem += m.topo.ZNUMANodes[zN].AllocatableBytes
 				}
 			}
 		}
