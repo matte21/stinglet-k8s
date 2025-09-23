@@ -186,14 +186,14 @@ func (m *Manager) Admit(attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitR
 			return lifecycle.PodAdmitResult{Message: err.Error(), Reason: "InvalidResourceRequests"}
 		}
 
-		minNumNNUMAs := m.minNumNNUMAsGivenFreeResources(req.cpus, req.localMem)
-		if minNumNNUMAs > req.maxNNUMAs {
-			return lifecycle.PodAdmitResult{Admit: false, Reason: "NeedMoreNUMANodesThanMaxRequested"}
-		}
+		// minNumNNUMAs := m.minNumNNUMAsGivenFreeResources(req.cpus, req.localMem)
+		// if minNumNNUMAs > req.maxNNUMAs {
+		// 	return lifecycle.PodAdmitResult{Admit: false, Reason: "NeedMoreNUMANodesThanMaxRequested"}
+		// }
 
-		if minNumNNUMAs > req.minNNUMAs {
-			req.minNNUMAs = minNumNNUMAs
-		}
+		// if minNumNNUMAs > req.minNNUMAs {
+		// 	req.minNNUMAs = minNumNNUMAs
+		// }
 
 		// For now, we do a first fit.
 		// TODO: do something more effective than first fit.
