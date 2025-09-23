@@ -313,6 +313,9 @@ func initTopology(mi *cadvisor.MachineInfo) *topology {
 			for nNID := range neighborsInSock {
 				neighborNNUMA = nNID
 				nN := t.NNUMANodes[nNID]
+				if _, ok := nN.NeighborNNUMAsBySocket[sock]; !ok {
+					nN.NeighborNNUMAsBySocket[sock] = make(map[int]struct{})
+				}
 				nN.NeighborNNUMAsBySocket[sock][zNID] = struct{}{}
 				newNN.NeighborNNUMAsBySocket[sock][nNID] = struct{}{}
 			}
