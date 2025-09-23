@@ -302,11 +302,9 @@ func (m *Manager) Admit(attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitR
 		// Remove any reference to topology.
 		allZNUMAs := make([]int, 0, len(m.topo.ZNUMANodes))
 		for zN := range m.topo.ZNUMANodes {
-			allNNUMAs = append(allNNUMAs, zN)
+			allZNUMAs = append(allZNUMAs, zN)
 		}
 		slices.Sort(allZNUMAs)
-
-		klog.InfoS("zNUMAs: %d", len(allZNUMAs))
 
 		for j := 1; j <= len(allZNUMAs); j++ {
 			// We still do a first fit, and we should do better.
@@ -314,7 +312,6 @@ func (m *Manager) Admit(attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitR
 
 				freeFarMemBytes := uint64(0)
 				for _, znID := range zNUMAsGrp {
-					klog.InfoS("trying zNUMA w free mem: %d %v", znID, m.topo.ZNUMANodes[znID].FreeBytes)
 					freeFarMemBytes += m.topo.ZNUMANodes[znID].FreeBytes
 				}
 				if freeFarMemBytes >= req.farMem {
