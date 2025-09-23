@@ -1365,8 +1365,8 @@ func (m *Manager) candidateBetterThanCurrent(candidate, current []int, farMemReq
 		}
 	}
 
-	if len(candidate) < len(current) {
-		return true
+	if len(candidate) != len(current) {
+		return len(candidate) < len(current)
 	}
 
 	candidateDistance := uint64(0)
