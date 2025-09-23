@@ -306,7 +306,7 @@ func (m *Manager) Admit(attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitR
 		}
 		slices.Sort(allZNUMAs)
 
-		klog.InfoS("zNUMAs: %d", len(zNUMAsCombo))
+		klog.InfoS("zNUMAs: %d", len(allZNUMAs))
 
 		for j := 1; j <= len(allZNUMAs); j++ {
 			// We still do a first fit, and we should do better.
