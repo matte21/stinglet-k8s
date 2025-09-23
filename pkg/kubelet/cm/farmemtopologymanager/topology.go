@@ -276,14 +276,71 @@ func initTopology(mi *cadvisor.MachineInfo) *topology {
 	}
 
 	// Sort nNUMAs in ascending order of far memory in neighboring zNUMAs.
-	slices.SortFunc(t.NNUMAsSortedByNeighborFarMemory, func(n1, n2 int) int {
-		return t.farMemBytesInNeighbors(n1) - t.farMemBytesInNeighbors(n2)
-	})
+	// slices.SortFunc(t.NNUMAsSortedByNeighborFarMemory, func(n1, n2 int) int {
+	// 	return t.farMemBytesInNeighbors(n1) - t.farMemBytesInNeighbors(n2)
+	// })
+
+	t.NUMADistanceMatrix = distanceMatrix
+
+	// Make nNUMAs forget about zNUMAs
+	for _, nN := range t.NNUMANodes {
+		nN.NeighborZNUMAs = make(map[int]struct{})
+	}
+
+	// Convert zNUMAs to nNUMAs.
+	for zNID, zN := range t.ZNUMANodes {
+		newNN := &nNUMANode{
+			ID:                  zNID,
+			Mem:                 zN.Mem,
+			FreeCPUs:            cpuset.New(),
+			ReservedCPUs:        cpuset.New(),
+			IdleCoresToCPUs:     make(map[int]cpuset.CPUSet),
+			BusyCoresToFreeCPUs: make(map[int]cpuset.CPUSet),
+			IdleLLCsToCPUs:      make(map[int]cpuset.CPUSet),
+			BusyLLCsToFreeCPUs:  make(map[int]cpuset.CPUSet),
+			cpuToCoreAndLLC:     make(map[int]cpuParents),
+			NeighborZNUMAs:      make(map[int]struct{}),
+		}
+
+		var neighborNNUMA int
+		for sock, neighborsInSock := range zN.NeighborNNUMAsBySocket {
+			newNN.SocketID = sock
+			t.SocketToNNUMANodesIDs[sock][zNID] = struct{}{}
+
+			newNN.NeighborNNUMAsBySocket = make(map[int]map[int]struct{})
+			newNN.NeighborNNUMAsBySocket[sock] = make(map[int]struct{})
+
+			for nNID := range neighborsInSock {
+				neighborNNUMA = nNID
+				nN := t.NNUMANodes[nNID]
+				nN.NeighborNNUMAsBySocket[sock][zNID] = struct{}{}
+				newNN.NeighborNNUMAsBySocket[sock][nNID] = struct{}{}
+			}
+		}
+
+		t.NNUMANodes[zNID] = newNN
+		t.NNUMAsSortedByNeighborFarMemory = append(t.NNUMAsSortedByNeighborFarMemory, newNN.ID)
+
+		if _, ok := t.NUMADistanceMatrix[zNID]; !ok {
+			t.NUMADistanceMatrix[zNID] = make([]uint64, len(machineInfo.Topology))
+			for i := 0; i < len(machineInfo.Topology); i++ {
+				if _, ok := t.NUMADistanceMatrix[i]; ok {
+					t.NUMADistanceMatrix[zNID][i] = t.NUMADistanceMatrix[i][zNID]
+				} else if i == zNID {
+					// 10 is the convention for self references.
+					t.NUMADistanceMatrix[zNID][zNID] = 10
+				} else {
+					t.NUMADistanceMatrix[zNID][i] = t.NUMADistanceMatrix[neighborNNUMA][i]
+				}
+			}
+		}
+	}
+	t.ZNUMANodes = make(map[int]*zNUMANode)
 
 	t.nNUMAsByFreeCPUs = newMaxHeap(t, true)
 	t.nNUMAsByFreeMem = newMaxHeap(t, false)
 
-	t.NUMADistanceMatrix = distanceMatrix
+	slices.Sort(t.NNUMAsSortedByNeighborFarMemory)
 
 	return t
 }
