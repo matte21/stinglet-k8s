@@ -709,6 +709,8 @@ func (m *Manager) parseContainerReqs(p *v1.Pod, c *v1.Container) (resourceReques
 }
 
 func getRequestCPUsDistPolicy(p *v1.Pod, c *v1.Container) (distOverNUMAs, distOverCaches string, err error) {
+	return Pack, L1Share, nil
+
 	distOverNUMAsKey, distOverCachesKey := cpusDistPolicyAnnotationKeys(c.Name)
 
 	distOverNUMAs, ok := p.Annotations[distOverNUMAsKey]
