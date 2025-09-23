@@ -199,12 +199,18 @@ func (m *Manager) Admit(attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitR
 		// TODO: do something more effective than first fit.
 		var nNUMAsCombo []int
 		var zNUMAsCombo []int
+
+		// Remove any reference to topology.
+		allNNUMAs := make([]int, len(m.topo.NNUMAsSortedByNeighborFarMemory))
+		copy(allNNUMAs, m.topo.NNUMAsSortedByNeighborFarMemory)
+		slices.Sort(allNNUMAs)
+
 		for i := req.minNNUMAs; i <= req.maxNNUMAs; i++ {
-			iterateCombinations(m.topo.NNUMAsSortedByNeighborFarMemory, i, func(nNUMAsGrp []int) LoopControl {
-				if !m.groupIsConnected(nNUMAsGrp) {
-					klog.InfoS("discarding nNUMAs group", "group", nNUMAsGrp, "reason", "disconnected")
-					return Continue
-				}
+			iterateCombinations(allNNUMAs, i, func(nNUMAsGrp []int) LoopControl {
+				// if !m.groupIsConnected(nNUMAsGrp) {
+				// 	klog.InfoS("discarding nNUMAs group", "group", nNUMAsGrp, "reason", "disconnected")
+				// 	return Continue
+				// }
 
 				freeCPUs := 0
 				freeMemBytes := uint64(0)
@@ -227,12 +233,17 @@ func (m *Manager) Admit(attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitR
 					return Continue
 				}
 
-				if req.farMem == 0 {
-					if m.candidateBetterThanCurrent(nNUMAsGrp, nNUMAsCombo, false) {
-						nNUMAsCombo = nNUMAsGrp
-					}
-					return Continue
+				if m.candidateBetterThanCurrent(nNUMAsGrp, nNUMAsCombo, true) {
+					nNUMAsCombo = nNUMAsGrp
 				}
+				return Continue
+
+				// if req.farMem == 0 {
+				// 	if m.candidateBetterThanCurrent(nNUMAsGrp, nNUMAsCombo, false) {
+				// 		nNUMAsCombo = nNUMAsGrp
+				// 	}
+				// 	return Continue
+				// }
 
 				// We need a list of zNUMAs, but we intermediately store them in a map to avoid
 				// duplicates.
@@ -284,6 +295,41 @@ func (m *Manager) Admit(attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitR
 				Admit:   false,
 				Reason:  "NoNUMAComboFound",
 				Message: "No NUMA Combo found",
+			}
+		}
+
+		// Now, get the zNUMAs.
+		// Remove any reference to topology.
+		allZNUMAs := make([]int, 0, len(m.topo.ZNUMANodes))
+		for zN := range m.topo.ZNUMANodes {
+			allNNUMAs = append(allNNUMAs, zN)
+		}
+		slices.Sort(allZNUMAs)
+
+		for j := 1; j <= len(allZNUMAs); j++ {
+			// We still do a first fit, and we should do better.
+			iterateCombinations(allZNUMAs, j, func(zNUMAsGrp []int) LoopControl {
+				freeFarMemBytes := uint64(0)
+				for _, znID := range zNUMAsGrp {
+					freeFarMemBytes += m.topo.ZNUMANodes[znID].FreeBytes
+				}
+				if freeFarMemBytes >= req.farMem {
+					if m.candidateBetterThanCurrentZNUMAs(zNUMAsGrp, zNUMAsCombo) {
+						nNUMAsCombo = zNUMAsGrp
+					}
+					// TODO: continue instead. But in our testbeds it's not needed.
+					return Break
+				}
+				klog.InfoS("discarding zNUMAs group", "zNUMAs", zNUMAsGrp, "nNUMAs", zNUMAsCombo)
+				return Continue
+			})
+		}
+
+		if len(zNUMAsCombo) == 0 {
+			return lifecycle.PodAdmitResult{
+				Admit:   false,
+				Reason:  "NoZNUMAComboFound",
+				Message: "No zNUMA Combo found",
 			}
 		}
 
@@ -1390,4 +1436,22 @@ func (m *Manager) candidateBetterThanCurrent(candidate, current []int, farMemReq
 	}
 
 	return candidateDistanceFlt < currentDistanceFlt
+}
+
+func (m *Manager) candidateBetterThanCurrentZNUMAs(candidate, current []int) bool {
+	if len(current) == 0 {
+		return true
+	}
+
+	if len(candidate) < len(current) {
+		return true
+	}
+
+	if len(candidate) > len(current) {
+		return false
+	}
+
+	curMask, _ := bitmask.NewBitMask(current...)
+	candMask, _ := bitmask.NewBitMask(candidate...)
+	return candMask.IsLessThan(curMask)
 }
