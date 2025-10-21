@@ -315,7 +315,7 @@ func (m HintMerger) Merge() TopologyHint {
 	})
 
 	if bestHint == nil {
-		bestHint = &TopologyHint{defaultAffinity, false}
+		bestHint = &TopologyHint{nil, false}
 	}
 
 	return *bestHint
