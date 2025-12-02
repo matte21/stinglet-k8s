@@ -2718,6 +2718,7 @@ func (kl *Kubelet) HandlePodAdditions(pods []*v1.Pod) {
 					// Instead, we record the metric here in HandlePodAdditions for new pods
 					// and capture resize events separately.
 					recordAdmissionRejection(reason)
+					klog.InfoS("syncadd time reject", "time", time.Since(start))
 					continue
 				}
 			}
@@ -2728,6 +2729,7 @@ func (kl *Kubelet) HandlePodAdditions(pods []*v1.Pod) {
 			UpdateType: kubetypes.SyncPodCreate,
 			StartTime:  start,
 		})
+		klog.InfoS("syncadd time", "time", time.Since(start))
 	}
 }
 
