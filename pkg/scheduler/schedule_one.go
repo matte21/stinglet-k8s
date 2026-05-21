@@ -393,8 +393,12 @@ func (sched *Scheduler) skipPodSchedule(ctx context.Context, fwk framework.Frame
 	return isAssumed
 }
 
-func (sched *Scheduler) SimSchedulePod(ctx context.Context, fwk framework.Framework, state *framework.CycleState, pod *v1.Pod) (ScheduleResult, error) {
-	return sched.schedulePod(ctx, fwk, state, pod)
+func (sched *Scheduler) SimSchedulePod(ctx context.Context, pod *v1.Pod) (ScheduleResult, error) {
+	fwk, err := sched.frameworkForPod(pod)
+	if err != nil {
+		return ScheduleResult{}, fmt.Errorf("failed to get scheduling framework for pod %s: %v", pod.Name, err)
+	}
+	return sched.schedulePod(ctx, fwk, framework.NewCycleState(), pod)
 }
 
 // schedulePod tries to schedule the given pod to one of the nodes in the node list.
