@@ -393,8 +393,8 @@ func (sched *Scheduler) skipPodSchedule(ctx context.Context, fwk framework.Frame
 	return isAssumed
 }
 
-func (sched *Scheduler) SimSchedulePod() {
-	fmt.Println("klet ++")
+func (sched *Scheduler) SimSchedulePod(ctx context.Context, fwk framework.Framework, state *framework.CycleState, pod *v1.Pod) (ScheduleResult, error) {
+	return sched.schedulePod(ctx, fwk, state, pod)
 }
 
 // schedulePod tries to schedule the given pod to one of the nodes in the node list.
