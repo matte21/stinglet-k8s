@@ -25,6 +25,7 @@ import (
 
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
 	"k8s.io/klog/v2"
@@ -215,6 +216,48 @@ func NewManager(cpuPolicyName string, cpuPolicyOptions map[string]string, reconc
 	}
 	manager.sourcesReady = &sourcesReadyStub{}
 	return manager, nil
+}
+
+type simNopPodStatusProvider struct{}
+
+func (simNopPodStatusProvider) GetPodStatus(types.UID) (v1.PodStatus, bool) {
+	return v1.PodStatus{}, false
+}
+
+type simNopRuntimeService struct {
+	err error
+}
+
+func (simNopRuntimeService) UpdateContainerResources(context.Context, string, *runtimeapi.ContainerResources) error {
+	return nil
+}
+
+// Added by Matteo Olivi to make simulation easier.
+func SimStart(mgrIfc Manager, activePods ActivePodsFunc) error {
+	m, ok := mgrIfc.(*manager)
+	if !ok {
+		panic("cpu manager sim start got passed a manager of a type which isn't a cpu manager")
+	}
+
+	klog.InfoS("Starting CPU manager", "policy", m.policy.Name())
+	m.activePods = activePods
+	m.podStatusProvider = simNopPodStatusProvider{}
+	m.containerRuntime = simNopRuntimeService{}
+	m.containerMap = containermap.NewContainerMap()
+	m.state = state.NewMemoryState()
+
+	if err := m.policy.Start(m.state); err != nil {
+		klog.ErrorS(err, "Policy start error")
+		return err
+	}
+
+	klog.V(4).InfoS("CPU manager started", "policy", m.policy.Name())
+
+	m.allocatableCPUs = m.policy.GetAllocatableCPUs(m.state)
+
+	// We don't periodically reconcile since there's no actual container runtime in the simulation.
+
+	return nil
 }
 
 func (m *manager) Start(activePods ActivePodsFunc, sourcesReady config.SourcesReady, podStatusProvider status.PodStatusProvider, containerRuntime runtimeService, initialContainers containermap.ContainerMap) error {
