@@ -26,6 +26,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
 	"k8s.io/klog/v2"
@@ -179,6 +180,46 @@ func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAll
 	}
 	manager.sourcesReady = &sourcesReadyStub{}
 	return manager, nil
+}
+
+type simNopPodStatusProvider struct{}
+
+func (simNopPodStatusProvider) GetPodStatus(types.UID) (v1.PodStatus, bool) {
+	return v1.PodStatus{}, false
+}
+
+type simNopRuntimeService struct {
+	err error
+}
+
+func (simNopRuntimeService) UpdateContainerResources(_ context.Context, _ string, _ *runtimeapi.ContainerResources) error {
+	return nil
+}
+
+// Added by Matteo Olivi to make simulation easier.
+func SimStart(mIfc Manager, activePods ActivePodsFunc) error {
+	m, ok := mIfc.(*manager)
+	if !ok {
+		panic("mem manager sim start got passed a manager of a type which isn't a memory manager")
+	}
+
+	klog.InfoS("Starting memorymanager", "policy", m.policy.Name())
+
+	m.activePods = activePods
+	m.podStatusProvider = simNopPodStatusProvider{}
+	m.containerRuntime = simNopRuntimeService{}
+	m.containerMap = containermap.NewContainerMap()
+	m.state = state.NewMemoryState()
+
+	if err := m.policy.Start(m.state); err != nil {
+		klog.ErrorS(err, "Policy start error")
+		return err
+	}
+
+	m.allocatableMemory = m.policy.GetAllocatableMemory(m.state)
+
+	klog.V(4).InfoS("memorymanager started", "policy", m.policy.Name())
+	return nil
 }
 
 // Start starts the memory manager under the kubelet and calls policy start
