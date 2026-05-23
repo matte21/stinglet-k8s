@@ -221,6 +221,26 @@ func (m *manager) RemoveContainer(containerID string) error {
 	return m.scope.RemoveContainer(containerID)
 }
 
+// Added by Matteo Olivi to make it easier to write our simulator.
+func (m *manager) SimRemoveContainer(podUID, contName string) error {
+	switch s := m.scope.(type) {
+	case *containerScope:
+		s.mutex.Lock()
+		defer s.mutex.Unlock()
+		if pHints, ok := s.podTopologyHints[podUID]; ok {
+			if _, ok = pHints[contName]; ok {
+				delete(pHints, contName)
+				delete(s.podTopologyHints, podUID)
+			}
+		}
+	case *noneScope:
+		break
+	default:
+		panic("invoked SimRemoveContainer on topology manager with unsupported scope. Only supported scopes are container or none")
+	}
+	return nil
+}
+
 func (m *manager) Admit(attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitResult {
 	klog.V(4).InfoS("Topology manager admission check", "pod", klog.KObj(attrs.Pod))
 	metrics.TopologyManagerAdmissionRequestsTotal.Inc()
