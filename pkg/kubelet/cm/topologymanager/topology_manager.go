@@ -222,7 +222,12 @@ func (m *manager) RemoveContainer(containerID string) error {
 }
 
 // Added by Matteo Olivi to make it easier to write our simulator.
-func (m *manager) SimRemoveContainer(podUID, contName string) {
+func SimRemoveContainer(mIfc Manager, podUID, contName string) {
+	m, ok := mIfc.(*manager)
+	if !ok {
+		panic("topology manager sim start got passed a manager of a type which isn't a topology manager")
+	}
+
 	switch s := m.scope.(type) {
 	case *containerScope:
 		s.mutex.Lock()
