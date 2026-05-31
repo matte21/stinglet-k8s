@@ -1044,23 +1044,13 @@ func isNUMAAffinitiesEqual(numaAffinity1, numaAffinity2 []int) bool {
 
 func isAffinityViolatingNUMAAllocations(machineState state.NUMANodeMap, mask bitmask.BitMask) bool {
 	maskBits := mask.GetBits()
-	singleNUMAHint := len(maskBits) == 1
 	for _, nodeID := range mask.GetBits() {
 		// the node was never used for the memory allocation
 		if machineState[nodeID].NumberOfAssignments == 0 {
 			continue
 		}
-		if singleNUMAHint {
-			continue
-		}
-		// the node used for the single NUMA memory allocation, it cannot be used for the multi NUMA node allocation
-		if len(machineState[nodeID].Cells) == 1 {
-			return true
-		}
 		// the node already used with a different group of nodes, it cannot be used within the current hint
-		if !areGroupsEqual(machineState[nodeID].Cells, maskBits) {
-			return true
-		}
+		return !areGroupsEqual(machineState[nodeID].Cells, maskBits)
 	}
 	return false
 }
