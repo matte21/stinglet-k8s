@@ -30,12 +30,12 @@ import (
 )
 
 func (i *internalContainerLifecycleImpl) PreCreateContainer(pod *v1.Pod, container *v1.Container, containerConfig *runtimeapi.ContainerConfig) error {
-	if fmm, ok := i.topologyManager.(*farmemtopologymanager.Manager); ok {
-		preCreateContainerWUnifiedMgr(fmm, pod, container, containerConfig)
-	} else {
-		preCreateContainerWCPUandMemMgrs(i, pod, container, containerConfig)
-	}
-	return nil
+	// if fmm, ok := i.topologyManager.(*farmemtopologymanager.Manager); ok {
+	// 	preCreateContainerWUnifiedMgr(fmm, pod, container, containerConfig)
+	// } else {
+	// 	preCreateContainerWCPUandMemMgrs(i, pod, container, containerConfig)
+	// }
+	return preCreateContainerWCPUandMemMgrs(i, pod, container, containerConfig)
 }
 
 func preCreateContainerWUnifiedMgr(fmm *farmemtopologymanager.Manager, pod *v1.Pod, container *v1.Container, containerConfig *runtimeapi.ContainerConfig) {
