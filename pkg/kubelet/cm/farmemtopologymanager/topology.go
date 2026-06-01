@@ -278,7 +278,7 @@ func initTopology(mi *cadvisor.MachineInfo) *topology {
 	// Sort nNUMAs in ascending order of far memory in neighboring zNUMAs.
 	slices.SortFunc(t.NNUMAsSortedByNeighborFarMemory, func(n1, n2 int) int {
 		// use a sort order different than the far memory amount for the ablation.
-		return n2 - n1
+		return n1 - n2
 		//return t.farMemBytesInNeighbors(n1) - t.farMemBytesInNeighbors(n2)
 	})
 
