@@ -325,8 +325,8 @@ func initTopology(mi *cadvisor.MachineInfo) *topology {
 		t.NNUMAsSortedByNeighborFarMemory = append(t.NNUMAsSortedByNeighborFarMemory, newNN.ID)
 
 		if _, ok := t.NUMADistanceMatrix[zNID]; !ok {
-			t.NUMADistanceMatrix[zNID] = make([]uint64, len(machineInfo.Topology))
-			for i := 0; i < len(machineInfo.Topology); i++ {
+			t.NUMADistanceMatrix[zNID] = make([]uint64, len(mi.Topology))
+			for i := 0; i < len(mi.Topology); i++ {
 				if _, ok := t.NUMADistanceMatrix[i]; ok {
 					t.NUMADistanceMatrix[zNID][i] = t.NUMADistanceMatrix[i][zNID]
 				} else if i == zNID {
