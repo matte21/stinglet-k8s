@@ -1391,27 +1391,31 @@ func (m *Manager) candidateBetterThanCurrent(candidate, current []int, farMemReq
 		return len(candidate) < len(current)
 	}
 
-	candidateDistance := uint64(0)
-	for _, i := range candidate {
-		for _, j := range candidate {
-			candidateDistance += m.topo.NUMADistanceMatrix[i][j]
-		}
-	}
-	candidateDistanceFlt := float64(candidateDistance) / float64(len(candidate))
+	curMask, _ := bitmask.NewBitMask(current...)
+	candMask, _ := bitmask.NewBitMask(candidate...)
+	return candMask.IsLessThan(curMask)
 
-	currentDistance := uint64(0)
-	for _, i := range current {
-		for _, j := range current {
-			currentDistance += m.topo.NUMADistanceMatrix[i][j]
-		}
-	}
-	currentDistanceFlt := float64(currentDistance) / float64(len(current))
+	// candidateDistance := uint64(0)
+	// for _, i := range candidate {
+	// 	for _, j := range candidate {
+	// 		candidateDistance += m.topo.NUMADistanceMatrix[i][j]
+	// 	}
+	// }
+	// candidateDistanceFlt := float64(candidateDistance) / float64(len(candidate))
 
-	if currentDistanceFlt == candidateDistanceFlt {
-		curMask, _ := bitmask.NewBitMask(current...)
-		candMask, _ := bitmask.NewBitMask(candidate...)
-		return candMask.IsLessThan(curMask)
-	}
+	// currentDistance := uint64(0)
+	// for _, i := range current {
+	// 	for _, j := range current {
+	// 		currentDistance += m.topo.NUMADistanceMatrix[i][j]
+	// 	}
+	// }
+	// currentDistanceFlt := float64(currentDistance) / float64(len(current))
 
-	return candidateDistanceFlt < currentDistanceFlt
+	// if currentDistanceFlt == candidateDistanceFlt {
+	// 	curMask, _ := bitmask.NewBitMask(current...)
+	// 	candMask, _ := bitmask.NewBitMask(candidate...)
+	// 	return candMask.IsLessThan(curMask)
+	// }
+
+	// return candidateDistanceFlt < currentDistanceFlt
 }
