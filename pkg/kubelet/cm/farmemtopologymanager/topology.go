@@ -4,7 +4,10 @@ import (
 	"container/heap"
 	"fmt"
 	"math"
+	"os"
 	"slices"
+	"strconv"
+	"strings"
 
 	_ "k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
 	"k8s.io/utils/cpuset"
@@ -579,4 +582,29 @@ func (t *topology) farMemBytesInNeighbors(id int) int {
 	}
 
 	return int(farMemBytes)
+}
+
+// readNodeTotalMemBytes reads a NUMA node's current total memory directly from sysfs. Used to
+// detect when a zNUMA node's real capacity has grown (e.g. after DCMFM Agent onlines more memory
+// on our behalf) without trusting a value we computed ourselves.
+func readNodeTotalMemBytes(nodeID int) (uint64, error) {
+	path := "/sys/devices/system/node/node" + strconv.Itoa(nodeID) + "/meminfo"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read %s: %v", path, err)
+	}
+
+	for _, line := range strings.Split(string(data), "\n") {
+		// Expected format: "Node <id> MemTotal:       <kB> kB"
+		fields := strings.Fields(line)
+		if len(fields) >= 4 && fields[2] == "MemTotal:" {
+			kB, err := strconv.ParseUint(fields[3], 10, 64)
+			if err != nil {
+				return 0, fmt.Errorf("failed to parse MemTotal in %s: %v", path, err)
+			}
+			return kB * 1024, nil
+		}
+	}
+
+	return 0, fmt.Errorf("MemTotal not found in %s", path)
 }
