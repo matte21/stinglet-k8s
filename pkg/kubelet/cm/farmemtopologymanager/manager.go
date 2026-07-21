@@ -401,20 +401,7 @@ func (m *Manager) findNUMACombo(req resourceRequest) (nNUMAsCombo []int, zNUMAsC
 				return Continue
 			}
 
-			// We need a list of zNUMAs, but we intermediately store them in a map to avoid
-			// duplicates.
-			zNUMAsSet := make(map[int]struct{})
-			zNUMAs := make([]int, 0, 1)
-			for _, nID := range nNUMAsGrp {
-				if m.topo.NNUMANodes[nID].FreeCPUs.Size() > 0 {
-					for zN := range m.topo.NNUMANodes[nID].NeighborZNUMAs {
-						if _, alreadySeen := zNUMAsSet[zN]; !alreadySeen {
-							zNUMAsSet[zN] = struct{}{}
-							zNUMAs = append(zNUMAs, zN)
-						}
-					}
-				}
-			}
+			zNUMAs := m.uniqueNeighborZNUMAs(nNUMAsGrp, true)
 			// TODO: sort in a better way.
 			slices.Sort(zNUMAs)
 
@@ -447,6 +434,29 @@ func (m *Manager) findNUMACombo(req resourceRequest) (nNUMAsCombo []int, zNUMAsC
 	}
 
 	return nNUMAsCombo, zNUMAsCombo
+}
+
+// uniqueNeighborZNUMAs returns the deduplicated set of zNUMA node IDs that neighbor any nNUMA in
+// nNUMAsGrp, as a slice (unsorted -- order is that of first discovery). If onlyFreeCPUNNUMAs is
+// true, nNUMAs with no free CPUs are skipped entirely (used by findNUMACombo, which is only
+// interested in zNUMAs reachable from an nNUMA that could actually run something); if false, every
+// nNUMA in the group is considered (used by candidateBetterThanCurrent, which is just totaling
+// available far-mem for comparison, not searching for a combo to admit).
+func (m *Manager) uniqueNeighborZNUMAs(nNUMAsGrp []int, onlyFreeCPUNNUMAs bool) []int {
+	zNUMAsSet := make(map[int]struct{})
+	zNUMAs := make([]int, 0, 1)
+	for _, nID := range nNUMAsGrp {
+		if onlyFreeCPUNNUMAs && m.topo.NNUMANodes[nID].FreeCPUs.Size() == 0 {
+			continue
+		}
+		for zN := range m.topo.NNUMANodes[nID].NeighborZNUMAs {
+			if _, alreadySeen := zNUMAsSet[zN]; !alreadySeen {
+				zNUMAsSet[zN] = struct{}{}
+				zNUMAs = append(zNUMAs, zN)
+			}
+		}
+	}
+	return zNUMAs
 }
 
 // tryGrowFarMemCapacity asks Pangaea's DCMFM Agent to online enough additional far-memory to
@@ -1484,25 +1494,13 @@ func (m *Manager) candidateBetterThanCurrent(candidate, current []int, farMemReq
 
 	if !farMemRequested {
 		candidateFarMem := uint64(0)
-		zNUMAsSet := make(map[int]struct{})
-		for _, nID := range candidate {
-			for zN := range m.topo.NNUMANodes[nID].NeighborZNUMAs {
-				if _, alreadySeen := zNUMAsSet[zN]; !alreadySeen {
-					zNUMAsSet[zN] = struct{}{}
-					candidateFarMem += m.topo.ZNUMANodes[zN].AllocatableBytes
-				}
-			}
+		for _, zN := range m.uniqueNeighborZNUMAs(candidate, false) {
+			candidateFarMem += m.topo.ZNUMANodes[zN].AllocatableBytes
 		}
 
 		currentFarMem := uint64(0)
-		zNUMAsSet = make(map[int]struct{})
-		for _, nID := range current {
-			for zN := range m.topo.NNUMANodes[nID].NeighborZNUMAs {
-				if _, alreadySeen := zNUMAsSet[zN]; !alreadySeen {
-					zNUMAsSet[zN] = struct{}{}
-					currentFarMem += m.topo.ZNUMANodes[zN].AllocatableBytes
-				}
-			}
+		for _, zN := range m.uniqueNeighborZNUMAs(current, false) {
+			currentFarMem += m.topo.ZNUMANodes[zN].AllocatableBytes
 		}
 
 		if candidateFarMem != currentFarMem {
