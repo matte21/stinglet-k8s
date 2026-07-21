@@ -103,6 +103,12 @@ type Manager struct {
 	// to make UpdateContainerResources() calls against the containers.
 	containerRuntime runtimeService
 
+	// dcmfm is optional: if set (DCMFM_AGENT_ADDR is configured), Admit() asks
+	// it to online more far-memory capacity before giving up on a pod that
+	// doesn't fit in the zNUMA capacity known at kubelet startup. If nil,
+	// behavior is unchanged from before this field existed.
+	dcmfm *dcmfmClient
+
 	mutex sync.RWMutex
 }
 
@@ -184,6 +190,7 @@ func New(mi *cadvisor.MachineInfo,
 		allocs:          make(map[string]map[string]Allocation),
 		topo:            topo,
 		reconcilePeriod: reconcilePeriod,
+		dcmfm:           newDCMFMClientFromEnv(),
 	}, nil
 }
 
@@ -232,87 +239,31 @@ func (m *Manager) Admit(attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitR
 			req.minNNUMAs = minNumNNUMAs
 		}
 
-		// For now, we do a first fit.
-		// TODO: do something more effective than first fit.
-		var nNUMAsCombo []int
-		var zNUMAsCombo []int
-		for i := req.minNNUMAs; i <= req.maxNNUMAs; i++ {
-			iterateCombinations(m.topo.NNUMAsSortedByNeighborFarMemory, i, func(nNUMAsGrp []int) LoopControl {
-				if !m.groupIsConnected(nNUMAsGrp) {
-					klog.InfoS("discarding nNUMAs group", "group", nNUMAsGrp, "reason", "disconnected")
-					return Continue
-				}
+		nNUMAsCombo, zNUMAsCombo := m.findNUMACombo(req)
 
-				freeCPUs := 0
-				freeMemBytes := uint64(0)
-				for _, nID := range nNUMAsGrp {
-					freeCPUs += m.topo.NNUMANodes[nID].FreeCPUs.Size()
-					freeMemBytes += m.topo.NNUMANodes[nID].FreeBytes
-				}
-
-				if freeCPUs < req.cpus {
-					klog.InfoS("discarding nNUMAs group: not enough free CPUs",
-						"group", nNUMAsGrp,
-						"num missing CPUs", req.cpus-freeCPUs)
-					return Continue
-				}
-
-				if freeMemBytes < req.localMem {
-					klog.InfoS("discarding nNUMAs group: not enough free memory",
-						"group", nNUMAsGrp,
-						"missing free bytes", req.localMem-freeMemBytes)
-					return Continue
-				}
-
-				if req.farMem == 0 {
-					if m.candidateBetterThanCurrent(nNUMAsGrp, nNUMAsCombo, false) {
-						nNUMAsCombo = nNUMAsGrp
-					}
-					return Continue
-				}
-
-				// We need a list of zNUMAs, but we intermediately store them in a map to avoid
-				// duplicates.
-				zNUMAsSet := make(map[int]struct{})
-				zNUMAs := make([]int, 0, 1)
-				for _, nID := range nNUMAsGrp {
-					if m.topo.NNUMANodes[nID].FreeCPUs.Size() > 0 {
-						for zN := range m.topo.NNUMANodes[nID].NeighborZNUMAs {
-							if _, alreadySeen := zNUMAsSet[zN]; !alreadySeen {
-								zNUMAsSet[zN] = struct{}{}
-								zNUMAs = append(zNUMAs, zN)
-							}
-						}
-					}
-				}
-				// TODO: sort in a better way.
-				slices.Sort(zNUMAs)
-
-				for j := 1; j <= len(zNUMAs); j++ {
-					// We still do a first fit, and we should do better.
-					iterateCombinations(zNUMAs, j, func(zNUMAsGrp []int) LoopControl {
-						freeFarMemBytes := uint64(0)
-						for _, znID := range zNUMAsGrp {
-							freeFarMemBytes += m.topo.ZNUMANodes[znID].FreeBytes
-						}
-						if freeFarMemBytes >= req.farMem {
-							if m.candidateBetterThanCurrent(nNUMAsGrp, nNUMAsCombo, true) {
-								nNUMAsCombo = nNUMAsGrp
-								zNUMAsCombo = zNUMAsGrp
-							}
-							// TODO: continue instead. But in our testbeds it's not needed.
-							return Break
-						}
-						klog.InfoS("discarding zNUMAs group", "zNUMAs", zNUMAsGrp, "nNUMAs", nNUMAsGrp)
-						return Continue
-					})
-				}
-
-				return Continue
-			})
-
-			if len(nNUMAsCombo) > 0 {
-				break
+		// If we couldn't fit the pod because there wasn't enough far memory (as opposed to not
+		// enough CPUs, local memory, or NUMA nodes -- none of which DCMFM can help with), ask
+		// Pangaea's DCMFM Agent to online more far-memory capacity and, if it did, retry once
+		// with the refreshed topology. If dcmfm is nil (not configured) or it has nothing to
+		// give, this is a no-op and behavior is exactly as before this existed.
+		if len(nNUMAsCombo) == 0 && req.farMem > 0 {
+			// req.farMem is the container's whole far-mem ask, not what's actually missing --
+			// some of it may already be free on existing zNUMA nodes, just not reachable by a
+			// combo that also satisfies req.cpus/req.localMem. Only ask DCMFM to grow the true
+			// shortfall (total ask minus everything already free across every zNUMA node), so we
+			// don't demand far more capacity than is really needed to admit this pod.
+			var totalFreeFarMem uint64
+			for _, zN := range m.topo.ZNUMANodes {
+				totalFreeFarMem += zN.FreeBytes
+			}
+			shortfall := req.farMem
+			if totalFreeFarMem < req.farMem {
+				shortfall = req.farMem - totalFreeFarMem
+			} else {
+				shortfall = 0
+			}
+			if shortfall > 0 && m.tryGrowFarMemCapacity(shortfall, p, &c) {
+				nNUMAsCombo, zNUMAsCombo = m.findNUMACombo(req)
 			}
 		}
 
@@ -407,6 +358,160 @@ func (m *Manager) Admit(attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitR
 	return lifecycle.PodAdmitResult{
 		Admit: true,
 	}
+}
+
+// findNUMACombo does a first-fit search for a combo of nNUMAs (and, if req.farMem > 0, zNUMAs)
+// that can satisfy req, given the topology's current free resources. Returns nil, nil if no combo
+// was found. Caller must hold m.mutex.
+//
+// TODO: do something more effective than first fit.
+func (m *Manager) findNUMACombo(req resourceRequest) (nNUMAsCombo []int, zNUMAsCombo []int) {
+	for i := req.minNNUMAs; i <= req.maxNNUMAs; i++ {
+		iterateCombinations(m.topo.NNUMAsSortedByNeighborFarMemory, i, func(nNUMAsGrp []int) LoopControl {
+			if !m.groupIsConnected(nNUMAsGrp) {
+				klog.InfoS("discarding nNUMAs group", "group", nNUMAsGrp, "reason", "disconnected")
+				return Continue
+			}
+
+			freeCPUs := 0
+			freeMemBytes := uint64(0)
+			for _, nID := range nNUMAsGrp {
+				freeCPUs += m.topo.NNUMANodes[nID].FreeCPUs.Size()
+				freeMemBytes += m.topo.NNUMANodes[nID].FreeBytes
+			}
+
+			if freeCPUs < req.cpus {
+				klog.InfoS("discarding nNUMAs group: not enough free CPUs",
+					"group", nNUMAsGrp,
+					"num missing CPUs", req.cpus-freeCPUs)
+				return Continue
+			}
+
+			if freeMemBytes < req.localMem {
+				klog.InfoS("discarding nNUMAs group: not enough free memory",
+					"group", nNUMAsGrp,
+					"missing free bytes", req.localMem-freeMemBytes)
+				return Continue
+			}
+
+			if req.farMem == 0 {
+				if m.candidateBetterThanCurrent(nNUMAsGrp, nNUMAsCombo, false) {
+					nNUMAsCombo = nNUMAsGrp
+				}
+				return Continue
+			}
+
+			zNUMAs := m.uniqueNeighborZNUMAs(nNUMAsGrp, true)
+			// TODO: sort in a better way.
+			slices.Sort(zNUMAs)
+
+			for j := 1; j <= len(zNUMAs); j++ {
+				// We still do a first fit, and we should do better.
+				iterateCombinations(zNUMAs, j, func(zNUMAsGrp []int) LoopControl {
+					freeFarMemBytes := uint64(0)
+					for _, znID := range zNUMAsGrp {
+						freeFarMemBytes += m.topo.ZNUMANodes[znID].FreeBytes
+					}
+					if freeFarMemBytes >= req.farMem {
+						if m.candidateBetterThanCurrent(nNUMAsGrp, nNUMAsCombo, true) {
+							nNUMAsCombo = nNUMAsGrp
+							zNUMAsCombo = zNUMAsGrp
+						}
+						// TODO: continue instead. But in our testbeds it's not needed.
+						return Break
+					}
+					klog.InfoS("discarding zNUMAs group", "zNUMAs", zNUMAsGrp, "nNUMAs", nNUMAsGrp)
+					return Continue
+				})
+			}
+
+			return Continue
+		})
+
+		if len(nNUMAsCombo) > 0 {
+			break
+		}
+	}
+
+	return nNUMAsCombo, zNUMAsCombo
+}
+
+// uniqueNeighborZNUMAs returns the deduplicated set of zNUMA node IDs that neighbor any nNUMA in
+// nNUMAsGrp, as a slice (unsorted -- order is that of first discovery). If onlyFreeCPUNNUMAs is
+// true, nNUMAs with no free CPUs are skipped entirely (used by findNUMACombo, which is only
+// interested in zNUMAs reachable from an nNUMA that could actually run something); if false, every
+// nNUMA in the group is considered (used by candidateBetterThanCurrent, which is just totaling
+// available far-mem for comparison, not searching for a combo to admit).
+func (m *Manager) uniqueNeighborZNUMAs(nNUMAsGrp []int, onlyFreeCPUNNUMAs bool) []int {
+	zNUMAsSet := make(map[int]struct{})
+	zNUMAs := make([]int, 0, 1)
+	for _, nID := range nNUMAsGrp {
+		if onlyFreeCPUNNUMAs && m.topo.NNUMANodes[nID].FreeCPUs.Size() == 0 {
+			continue
+		}
+		for zN := range m.topo.NNUMANodes[nID].NeighborZNUMAs {
+			if _, alreadySeen := zNUMAsSet[zN]; !alreadySeen {
+				zNUMAsSet[zN] = struct{}{}
+				zNUMAs = append(zNUMAs, zN)
+			}
+		}
+	}
+	return zNUMAs
+}
+
+// tryGrowFarMemCapacity asks Pangaea's DCMFM Agent to online enough additional far-memory to
+// cover shortfallBytes. Returns true if the request succeeded (the caller should re-run
+// findNUMACombo, since the topology may now have more free far memory), false if dcmfm isn't
+// configured or DCMFM reported no additional capacity is available. Caller must hold m.mutex.
+func (m *Manager) tryGrowFarMemCapacity(shortfallBytes uint64, p *v1.Pod, c *v1.Container) bool {
+	if m.dcmfm == nil {
+		return false
+	}
+
+	shortfallMB := int((shortfallBytes + (1024*1024 - 1)) / (1024 * 1024))
+	if err := m.dcmfm.requestMoreFarMem(shortfallMB, c.Name, p.Namespace, string(p.UID)); err != nil {
+		klog.InfoS("DCMFM Agent could not grow far-memory capacity",
+			"pod", klog.KObj(p), "container", c.Name, "requestedMB", shortfallMB, "err", err)
+		return false
+	}
+
+	// DCMFM Agent onlined some memory. All memory that's ever offline/onlineable on this host
+	// belongs to a zNUMA node (in both the real-CXL and fake-zNUMA cases -- regular DRAM here is
+	// never hot-pluggable), so refresh every zNUMA node's real capacity from sysfs: that's ground
+	// truth for what actually got onlined, rather than trusting a computed delta.
+	for id := range m.topo.ZNUMANodes {
+		m.refreshZNUMAFromSysfs(id)
+	}
+
+	klog.InfoS("DCMFM Agent grew far-memory capacity", "pod", klog.KObj(p), "container", c.Name, "requestedMB", shortfallMB)
+	return true
+}
+
+// refreshZNUMAFromSysfs re-reads a zNUMA node's total memory directly from sysfs and, if it grew
+// since we last knew about it, credits the growth to both AllocatableBytes and FreeBytes. This
+// leaves any memory already given out to running pods on this node untouched -- only newly
+// available capacity is added.
+func (m *Manager) refreshZNUMAFromSysfs(id int) {
+	n, ok := m.topo.ZNUMANodes[id]
+	if !ok {
+		return
+	}
+
+	newTotBytes, err := readNodeTotalMemBytes(id)
+	if err != nil {
+		klog.InfoS("failed to refresh zNUMA node from sysfs", "zNUMA", id, "err", err)
+		return
+	}
+
+	if newTotBytes <= n.TotBytes {
+		return
+	}
+
+	grownBy := newTotBytes - n.TotBytes
+	n.TotBytes = newTotBytes
+	n.AllocatableBytes += grownBy
+	n.FreeBytes += grownBy
+	klog.InfoS("zNUMA node capacity grew", "zNUMA", id, "grownByBytes", grownBy, "newTotalBytes", newTotBytes)
 }
 
 // nNUMAs is the set of nNUMA nodes to allocate `numToAlloc` CPUs from.
@@ -1389,25 +1494,13 @@ func (m *Manager) candidateBetterThanCurrent(candidate, current []int, farMemReq
 
 	if !farMemRequested {
 		candidateFarMem := uint64(0)
-		zNUMAsSet := make(map[int]struct{})
-		for _, nID := range candidate {
-			for zN := range m.topo.NNUMANodes[nID].NeighborZNUMAs {
-				if _, alreadySeen := zNUMAsSet[zN]; !alreadySeen {
-					zNUMAsSet[zN] = struct{}{}
-					candidateFarMem += m.topo.ZNUMANodes[zN].AllocatableBytes
-				}
-			}
+		for _, zN := range m.uniqueNeighborZNUMAs(candidate, false) {
+			candidateFarMem += m.topo.ZNUMANodes[zN].AllocatableBytes
 		}
 
 		currentFarMem := uint64(0)
-		zNUMAsSet = make(map[int]struct{})
-		for _, nID := range current {
-			for zN := range m.topo.NNUMANodes[nID].NeighborZNUMAs {
-				if _, alreadySeen := zNUMAsSet[zN]; !alreadySeen {
-					zNUMAsSet[zN] = struct{}{}
-					currentFarMem += m.topo.ZNUMANodes[zN].AllocatableBytes
-				}
-			}
+		for _, zN := range m.uniqueNeighborZNUMAs(current, false) {
+			currentFarMem += m.topo.ZNUMANodes[zN].AllocatableBytes
 		}
 
 		if candidateFarMem != currentFarMem {
