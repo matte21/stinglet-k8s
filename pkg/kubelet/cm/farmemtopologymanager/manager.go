@@ -247,7 +247,22 @@ func (m *Manager) Admit(attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitR
 		// with the refreshed topology. If dcmfm is nil (not configured) or it has nothing to
 		// give, this is a no-op and behavior is exactly as before this existed.
 		if len(nNUMAsCombo) == 0 && req.farMem > 0 {
-			if m.tryGrowFarMemCapacity(req.farMem, p, &c) {
+			// req.farMem is the container's whole far-mem ask, not what's actually missing --
+			// some of it may already be free on existing zNUMA nodes, just not reachable by a
+			// combo that also satisfies req.cpus/req.localMem. Only ask DCMFM to grow the true
+			// shortfall (total ask minus everything already free across every zNUMA node), so we
+			// don't demand far more capacity than is really needed to admit this pod.
+			var totalFreeFarMem uint64
+			for _, zN := range m.topo.ZNUMANodes {
+				totalFreeFarMem += zN.FreeBytes
+			}
+			shortfall := req.farMem
+			if totalFreeFarMem < req.farMem {
+				shortfall = req.farMem - totalFreeFarMem
+			} else {
+				shortfall = 0
+			}
+			if shortfall > 0 && m.tryGrowFarMemCapacity(shortfall, p, &c) {
 				nNUMAsCombo, zNUMAsCombo = m.findNUMACombo(req)
 			}
 		}
